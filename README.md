@@ -2,7 +2,11 @@
 Gmail open tracker (Chrome MV3 + Fastify backend). v1 is open tracking only.
 
 ## Status
-Phase 1 (backend, classifier, tests) done. Phase 2 coded and unit-tested: InboxSDK integration written (needs an owner-registered AppId, see docs/decisions.md #5) plus a MutationObserver fallback. **Neither is tested against live Gmail, so Gmail support is NOT done.** Interim snapshot, not a production deliverable. Phases 3-5 not started.
+Phase 1 backend/classifier and Phase 2 compose prototype are implemented. Phase 3 has reusable Shadow DOM badge/thread-card components and a basic popup. **The badge/card components are not yet connected to live Gmail rows/threads.** The compose-to-pixel-to-popup flow passes a mock-page Playwright test. 39 unit tests pass. Neither InboxSDK nor the fallback has been tested against real Gmail. This is an interim source snapshot, not a finished extension or production service.
+
+Not implemented yet: PostgreSQL adapter, verified Google identity, live SSE, notifications, offline queue, dashboard, onboarding, and final privacy/store documentation. The server currently uses in-memory storage (lost on restart) and development bearer-user-ID authentication. **Do not expose it publicly or use it with real mail.**
+
+The InboxSDK path requires an owner-registered AppId. No account registration, deployment, real email sending, store submission or live-inbox activation is included in this snapshot.
 
 ## Run
     npm install && npm test
@@ -20,3 +24,12 @@ To test from outside localhost use a Cloudflare Tunnel or ngrok to the backend a
 - Per-recipient tracking needs separate copies; prepared in the backend only, not enabled.
 - IP-based bot rules need real published ranges loaded at deploy time.
 See docs/decisions.md.
+
+## Mock end-to-end check
+The fixture uses synthetic recipient addresses and intercepts mail.google.com requests, not a live account. Build the mock-specific bundle, then run:
+
+    npx playwright install chromium --no-shell
+    VITE_ESEEN_API=https://mail.google.com/api npm run build -w extension
+    cd extension && node e2e/run.mjs
+
+Do not load that mock build into a real inbox. Rebuild without VITE_ESEEN_API for local development. Modern Chrome blocks HTTPS-page requests to loopback; the fixture's test-only same-origin proxy is not a production transport.

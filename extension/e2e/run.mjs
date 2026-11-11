@@ -26,7 +26,6 @@ try {
   const pixel = m[1]; console.log("pixel:", pixel.replace(/\/p\/.*/, "/p/<token>.gif"));
   const get = async (ua) => { const r = await fetch(pixel.replace("https://mail.google.com/api", "http://localhost:8787"), { headers: { "user-agent": ua } }); assert.equal(r.status, 200); assert.equal((await r.arrayBuffer()).byteLength, 43); };
   const list = async () => (await (await fetch("http://localhost:8787/v1/messages", { headers: { authorization: "Bearer dev-user" } })).json())[0];
-  const getPix = async (ua) => { const r = await fetch((await list()).recipients[0].pixelUrl.replace("https://mail.google.com/api", "http://localhost:8787"), { headers: { "user-agent": ua } }); assert.equal(r.status, 200); assert.equal((await r.arrayBuffer()).byteLength, 43); };
   let msg = await list(); assert.equal(msg.recipients.length, 1); assert.equal(msg.mode, "combined");
   await get("Mozilla/5.0 AppleMail"); await new Promise((r) => setTimeout(r, 300)); msg = await list();
   assert.equal(msg.recipients[0].status, "POSSIBLY_OPENED"); console.log("after Apple proxy hit:", msg.recipients[0].label);
