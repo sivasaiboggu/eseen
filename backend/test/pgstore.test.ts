@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { newDb } from "pg-mem";
-import { PgStore } from "../src/pgstore.js";
+import { PgStore, makeCipher } from "../src/pgstore.js";
 const setup = async () => { const { Pool } = newDb().adapters.createPg(); return PgStore.connect(new Pool()); };
 const msg = (id: string, userId = "u1", sentAt = 1000) => ({ id, userId, sentAt, mode: "combined" as const, recipients: [{ id: id + "-r", messageId: id, emailHash: "h" }] });
 describe("PgStore (pg-mem, real SQL)", () => {
@@ -31,5 +31,27 @@ describe("PgStore (pg-mem, real SQL)", () => {
     await s.purgeOlderThan(1500); expect((await s.eventsFor("m1-r")).length).toBe(1);
     await s.deleteUser("u1");
     expect(await s.getMessage("m1")).toBeUndefined(); expect((await s.eventsFor("m1-r")).length).toBe(0);
+  });
+});
+
+describe("PgStore at-rest encryption", () => {
+  const k1 = Buffer.alloc(32, 7), k2 = Buffer.alloc(32, 9);
+  it("AES-256-GCM round-trips and rejects wrong keys and tampering", () => {
+    const c1 = makeCipher(k1);
+    const blob = c1.enc("Q3 proposal");
+    expect(blob.toString()).not.toContain("Q3 proposal");
+    expect(makeCipher(k1).dec(blob)).toBe("Q3 proposal"); // fresh instance: no hidden state
+    expect(() => makeCipher(k2).dec(blob)).toThrow(); // wrong key fails the auth tag
+    const tampered = Buffer.from(blob); tampered[20] ^= 1;
+    expect(() => makeCipher(k1).dec(tampered)).toThrow();
+  });
+  it("stores opt-in subjects/labels encrypted, never as plaintext", async () => {
+    const { Pool } = newDb().adapters.createPg(); const pool = new Pool();
+    const store = await PgStore.connect(pool, { dataKey: k1 });
+    await store.addMessage({ id: "m1", userId: "u", subjectEnc: "Q3 proposal", sentAt: 1, mode: "per_recipient", recipients: [{ id: "r1", messageId: "m1", emailHash: "h", label: "Priya" }] });
+    const raw = await pool.query("select subject_encrypted from messages where id = 'm1'");
+    expect(Buffer.from(raw.rows[0].subject_encrypted).toString("latin1")).not.toContain("Q3 proposal");
+    const rawR = await pool.query("select display_label_encrypted from recipients where id = 'r1'");
+    expect(Buffer.from(rawR.rows[0].display_label_encrypted).toString("latin1")).not.toContain("Priya");
   });
 });

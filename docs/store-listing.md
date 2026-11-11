@@ -10,7 +10,7 @@
 - host permission for the backend URL: the extension calls your own tracking service. The dev build uses localhost; production replaces it at deploy time.
 
 ## Limited Use style statement
-Eseen complies with the Chrome Web Store Limited Use policy: it does not use or transfer data for advertising, does not allow humans to read user data, and only handles the email-tracking data the user explicitly creates.
+Eseen is designed for the Chrome Web Store Limited Use requirements: it does not use or transfer data for advertising, does not allow humans to read user data, and only handles the email-tracking data the user explicitly creates. (Draft statement; final wording reviewed at submission.)
 
 ## Listing copy (draft)
 Know when it's seen - honest open tracking for Gmail. Eseen shows when the tracking pixel in your sent emails is loaded, and is explicit about what that means: an image load, never proof anyone read your email.

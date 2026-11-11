@@ -8,6 +8,6 @@ const page = await ctx.newPage();
 let extId; for (let i = 0; i < 20 && !extId; i++) { const sw = ctx.serviceWorkers(); const hit = sw.find((w) => w.url().startsWith("chrome-extension://")); if (hit) extId = hit.url().split("/")[2]; await new Promise((r) => setTimeout(r, 250)); }
 await page.goto(`chrome-extension://${extId}/src/onboarding/index.html`);
 await page.waitForSelector("button#go", { timeout: 10000 });
-await page.screenshot({ path: "/tmp/eseen-check-shots/onboarding.png" });
+await page.screenshot({ path: "/tmp/eseen-check-shots/onboarding.png", fullPage: true });
 await ctx.close();
 console.log("ONBOARDING SHOT OK");
