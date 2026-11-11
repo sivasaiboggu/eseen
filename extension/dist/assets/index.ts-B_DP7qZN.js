@@ -1,0 +1,1 @@
+chrome.runtime.onMessage.addListener((c,e,t)=>{if(c.type==="inboxsdk__injectPageWorld"&&e.tab)if(chrome.scripting){let i,a;e.documentId?i=[e.documentId]:a=[e.frameId],chrome.scripting.executeScript({target:{tabId:e.tab.id,documentIds:i,frameIds:a},world:"MAIN",files:["pageWorld.js"]}),t(!0)}else t(!1)});

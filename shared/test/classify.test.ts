@@ -4,8 +4,9 @@ const T = 1_700_000_000_000;
 const c = (o: any = {}) => ({ sentAt: T, prior: [], ...o });
 describe("classify", () => {
   it("self marker", () => expect(classify({ at: T + 5000, selfMarker: true }, c()).classification).toBe("SELF_OPEN"));
-  it("self-view window, first load only", () => {
-    expect(classify({ at: T + 5000 }, c({ selfViewUntil: T + 60000 })).classification).toBe("SELF_OPEN");
+  it("self-view timing guess is POSSIBLY_OPENED, never SELF_OPEN", () => {
+    const r = classify({ at: T + 5000 }, c({ selfViewUntil: T + 60000 }));
+    expect(r.classification).toBe("POSSIBLY_OPENED"); expect(r.reason).toMatch(/unverified/);
     expect(classify({ at: T + 5000 }, c({ selfViewUntil: T + 60000, prior: [{ at: T + 1 }] })).classification).toBe("REAL_OPEN");
   });
   it("apple by UA and by IP", () => {

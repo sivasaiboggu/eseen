@@ -19,14 +19,14 @@ export function classify(ev: OpenEvent, ctx: Ctx, r: Rules = defaultRules): Resu
   const ua = (ev.userAgent ?? "").toLowerCase();
   if (ev.selfMarker) return { classification: "SELF_OPEN", reason: "Carried the sender's Eseen marker" };
   if (ctx.selfViewUntil && ev.at <= ctx.selfViewUntil && ctx.prior.length === 0)
-    return { classification: "SELF_OPEN", reason: "First load right after you viewed your own sent email (heuristic)" };
+    return { classification: "POSSIBLY_OPENED", reason: "First load right after you viewed your own sent email. Could be you, could be the recipient (unverified timing guess, kept visible)" };
   if (ctx.ip?.apple || has(ua, r.appleProxyUa)) return { classification: "POSSIBLY_OPENED", reason: "Auto-loaded by Apple Mail Privacy Protection" };
   if (ctx.ip?.scanner || has(ua, r.scannerUa)) return { classification: "POSSIBLY_OPENED", reason: "Auto-loaded by a security scanner" };
   if (has(ua, r.gmailProxyUa)) {
     const firstFetch = ctx.prior.length === 0;
     if (firstFetch && (ev.at - ctx.sentAt) / 1000 <= r.gmailPrefetchWithinSeconds)
       return { classification: "POSSIBLY_OPENED", reason: "Gmail image proxy loaded this within 60s of sending (likely pre-fetch)" };
-    return { classification: "REAL_OPEN", reason: "Via Gmail image proxy; Gmail caches images so repeat opens may be hidden" };
+    return { classification: "REAL_OPEN", reason: "Via Gmail image proxy. Timing alone cannot prove a person opened it; Gmail also caches images, so repeat opens may be hidden" };
   }
   if (ctx.ip?.datacenter) {
     const burst = ctx.prior.filter((p) => ev.at - p.at <= r.burstWindowSeconds * 1000).length + 1 >= r.burstMinLoads;

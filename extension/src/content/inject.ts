@@ -17,5 +17,5 @@ export function readRecipients(root: ParentNode): Recipient[] {
   (["to", "cc", "bcc"] as const).forEach((k) => root.querySelectorAll<HTMLInputElement>(`input[name="${k}"]`).forEach((i) => { if (i.value && i.value.includes("@")) out.push({ email: i.value, kind: k }); }));
   return out;
 }
-/** Combined by default. Per-recipient copies are never made unless the user opts in. */
-export function chooseMode(userOptedIntoPerRecipient: boolean): "combined" | "per_recipient" { return userOptedIntoPerRecipient ? "per_recipient" : "combined"; }
+/** Per-recipient copy sends are PREPARED in the backend but NOT enabled in the extension: not authorized for real use. Always combined. */
+export function chooseMode(): "combined" { return "combined"; }

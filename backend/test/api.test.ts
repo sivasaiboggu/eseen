@@ -40,12 +40,16 @@ describe("status flow", () => {
     clock.adv(600000); await hit("Chrome");
     const r = (await get()).recipients[0]; expect(r.status).toBe("OPENED"); expect(r.events).toHaveLength(2); // flagged event kept
   });
-  it("self marker and self-view are ignored", async () => {
-    const { app, hit, clock, get, body } = await setup(); clock.adv(100000);
+  it("explicit self marker is ignored", async () => {
+    const { hit, clock, get } = await setup(); clock.adv(100000);
     await hit("Chrome", { "x-eseen-self": "1" });
     expect((await get()).recipients[0].status).toBe("NOT_OPENED_YET");
-    await app.inject({ method: "POST", url: `/v1/messages/${body.id}/self-view`, headers: { authorization: "Bearer u1" } });
-    clock.adv(5000);
+  });
+  it("self-view timing guess stays visible as possibly opened", async () => {
+    const { app, hit, clock, get, body } = await setup(); clock.adv(100000);
+    await app.inject({ method: "POST", url: `/v1/messages/${body.id}/self-view`, headers: H }); clock.adv(5000);
+    await hit("Chrome"); const r = (await get()).recipients[0];
+    expect(r.status).toBe("POSSIBLY_OPENED"); expect(r.events[0].reason).toMatch(/unverified/);
   });
   it("per_recipient mode hashes emails, no addresses stored", async () => {
     const { store, body } = await setup({ mode: "per_recipient", recipients: [{ email: "Priya@x.com", label: "Priya" }] });

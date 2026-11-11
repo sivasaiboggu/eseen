@@ -1,10 +1,12 @@
 import { selectors } from "./selectors";
-import { injectPixel, removePixel, readRecipients, chooseMode } from "./inject";
+import { removePixel, readRecipients } from "./inject";
+import { prepareSend } from "./tracking";
+import { startInboxSdk } from "./inboxsdk";
 
 const API = "http://localhost:8787"; // dev only; production URL set at build/deploy, never silently
 const wired = new WeakSet<Element>(), bypass = new WeakSet<Element>();
-type S = { enabled: boolean; userId: string; perRecipient: boolean };
-const settings = () => chrome.storage.sync.get({ enabled: true, userId: "dev-user", perRecipient: false }) as Promise<S>;
+type S = { enabled: boolean; userId: string };
+const settings = () => chrome.storage.sync.get({ enabled: true, userId: "dev-user" }) as Promise<S>;
 
 function banner(text: string) { // fail safely: small notice, never break Gmail
   if (document.getElementById("eseen-banner")) return;
@@ -36,17 +38,18 @@ function wire(root: Element) {
       if (!toggle.checked) return;
       ev.stopImmediatePropagation(); ev.preventDefault(); // hold the send until tracking exists or the user decides
       const cfg = await settings();
-      let ok = false;
-      try {
-        const recips = readRecipients(root);
-        const r = await fetch(`${API}/v1/messages`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${cfg.userId}` },
-          body: JSON.stringify({ mode: chooseMode(cfg.perRecipient), recipients: recips.map((x) => ({ email: x.email })) }) });
-        if (r.ok) { const m = await r.json(); ok = injectPixel(body, m.pixels[0].url); }
-      } catch { /* handled below */ }
-      if (!ok && !window.confirm("Eseen couldn't set up tracking. Send without tracking?")) return; // never silently drop or silently send untracked
+      const recips = readRecipients(root).map((x) => x.email);
+      const res = await prepareSend(body, { base: API, userId: cfg.userId }, recips, () => window.confirm("Eseen couldn't set up tracking. Send without tracking?"));
+      if (res === "cancel") return;
       bypass.add(send); send.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })); // resume the held send
     }, true);
   });
 }
+const APP_ID = import.meta.env.VITE_INBOXSDK_APP_ID as string | undefined;
+if (APP_ID) {
+  startInboxSdk(APP_ID, async () => ({ base: API, userId: (await settings()).userId }), async () => (await settings()).enabled, (v) => void chrome.storage.sync.set({ enabled: v }))
+    .catch(() => banner("Eseen needs an update"));
+} else {
 let t: number | undefined;
 new MutationObserver(() => { clearTimeout(t); t = window.setTimeout(() => { try { document.querySelectorAll(selectors.composeRoot).forEach(wire); } catch { banner("Eseen needs an update"); } }, 200); }).observe(document.body, { childList: true, subtree: true });
+}

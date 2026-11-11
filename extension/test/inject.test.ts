@@ -11,5 +11,5 @@ describe("inject", () => {
   it("reads recipients from header inputs only", () => {
     const r = mk('<input name="to" value="a@x.com"><input name="cc" value="b@x.com"><input name="bcc" value="">'); expect(readRecipients(r)).toEqual([{ email: "a@x.com", kind: "to" }, { email: "b@x.com", kind: "cc" }]);
   });
-  it("never splits unless opted in", () => { expect(chooseMode(false)).toBe("combined"); expect(chooseMode(true)).toBe("per_recipient"); });
+  it("never splits: always combined", () => { expect(chooseMode()).toBe("combined"); });
 });
