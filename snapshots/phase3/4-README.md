@@ -1,6 +1,6 @@
 # Eseen: interim source snapshot
 
-This repository currently provides the complete phase-3 prototype as **1-eseen-source.zip**, not a browsable source tree. Extract it before running the project. Folder paths and dotfiles are preserved; dependency folders, builds, credentials, and real email data are excluded.
+This historical snapshot provides the complete phase-3 prototype as **1-eseen-source.zip**. The repository now also contains a browsable, newer source tree. Extract it before running the project. Folder paths and dotfiles are preserved; dependency folders, builds, credentials, and real email data are excluded.
 
 Verify `3-SHA256SUMS.txt` for the ZIP and `2-SOURCE-SHA256SUMS.txt` for every extracted file. The local development history is retained separately, pending normal Git push access.
 

@@ -34,7 +34,13 @@ try {
   await page.screenshot({ path: path.join(shots, "mock-compose.png") });
   // popup
   const sw = ctx.serviceWorkers()[0] ?? await ctx.waitForEvent("serviceworker"); const id = sw.url().split("/")[2];
-  const pop = await ctx.newPage(); await pop.setViewportSize({ width: 380, height: 260 }); await pop.goto(`chrome-extension://${id}/src/popup/index.html`); await pop.waitForSelector("li"); 
+  const pop = await ctx.newPage(); await pop.setViewportSize({ width: 380, height: 560 }); await pop.goto(`chrome-extension://${id}/src/popup/index.html`); await pop.waitForSelector("li"); 
   assert.match(await pop.textContent("li"), /Opened/); await pop.screenshot({ path: path.join(shots, "popup.png") });
+  await pop.emulateMedia({ colorScheme: "dark" });
+  await pop.screenshot({ path: path.join(shots, "popup-dark.png") });
+  await pop.emulateMedia({ colorScheme: "light" });
+  await fetch("http://localhost:8787/v1/me", { method: "DELETE", headers: { authorization: "Bearer dev-user" } });
+  await pop.reload(); await pop.getByText("Your next signal starts here").waitFor();
+  await pop.screenshot({ path: path.join(shots, "popup-empty.png") });
   console.log("E2E PASS");
 } finally { await ctx.close(); try { process.kill(-be.pid); } catch { be.kill(); } }

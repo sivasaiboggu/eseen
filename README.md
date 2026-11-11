@@ -2,7 +2,7 @@
 Gmail open tracker (Chrome MV3 + Fastify backend). v1 is open tracking only.
 
 ## Status
-Phase 1 backend/classifier and Phase 2 compose prototype are implemented. Phase 3 has reusable Shadow DOM badge/thread-card components and a basic popup. **The badge/card components are not yet connected to live Gmail rows/threads.** The compose-to-pixel-to-popup flow passes a mock-page Playwright test. 39 unit tests pass. Neither InboxSDK nor the fallback has been tested against real Gmail. This is an interim source snapshot, not a finished extension or production service.
+Phase 1 backend/classifier and Phase 2 compose prototype are implemented. Phase 3 has reusable Shadow DOM badge/thread-card components and a basic popup. **The badge/card components are not yet connected to live Gmail rows/threads.** The compose-to-pixel-to-popup flow passes a mock-page Playwright test. 43 unit tests pass. Neither InboxSDK nor the fallback has been tested against real Gmail. This is an interim source snapshot, not a finished extension or production service.
 
 Not implemented yet: PostgreSQL adapter, verified Google identity, live SSE, notifications, offline queue, dashboard, onboarding, and final privacy/store documentation. The server currently uses in-memory storage (lost on restart) and development bearer-user-ID authentication. **Do not expose it publicly or use it with real mail.**
 
@@ -33,3 +33,6 @@ The fixture uses synthetic recipient addresses and intercepts mail.google.com re
     cd extension && node e2e/run.mjs
 
 Do not load that mock build into a real inbox. Rebuild without VITE_ESEEN_API for local development. Modern Chrome blocks HTTPS-page requests to loopback; the fixture's test-only same-origin proxy is not a production transport.
+
+## Source snapshots
+A checksum-verified historical prototype archive is retained under `snapshots/phase3/`. The source tree at the repository root is newer and is the working version.
