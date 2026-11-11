@@ -11,6 +11,13 @@ async function tick() {
   const next = await checkOnce({ base: API, userId: s.userId }, s, seen, (title, message) => { try { chrome.notifications.create({ type: "basic", iconUrl: "icons/icon128.png", title, message }); } catch { /* headless/dev */ } });
   await chrome.storage.local.set({ seen: next });
 }
+// First run: show the onboarding/consent page once.
+chrome.runtime.onInstalled.addListener((d) => {
+  if (d.reason !== "install") return;
+  void chrome.storage.sync.get({ onboarded: false }).then((v) => {
+    if (!v.onboarded) chrome.tabs.create({ url: chrome.runtime.getURL("src/onboarding/index.html") });
+  });
+});
 chrome.alarms.create("eseen-poll", { periodInMinutes: 1 }); // the backend is the extension's own service, not a third-party site
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === "eseen-poll") void tick(); });
 (self as unknown as { __eseenTick?: unknown }).__eseenTick = tick; // test hook

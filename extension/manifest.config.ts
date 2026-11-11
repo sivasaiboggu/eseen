@@ -9,5 +9,6 @@ export default defineManifest({
   icons: { 16: "icons/icon16.png", 32: "icons/icon32.png", 48: "icons/icon48.png", 128: "icons/icon128.png" },
   web_accessible_resources: [{ resources: ["icons/*"], matches: ["https://mail.google.com/*"] }],
   action: { default_popup: "src/popup/index.html" },
+  options_page: "src/onboarding/index.html",
   content_security_policy: { extension_pages: "script-src 'self'; object-src 'self'" },
 });

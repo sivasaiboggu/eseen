@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Welcome to Eseen</title></head>
+<body><main>
+  <h1>Welcome to Eseen</h1>
+  <p class="lede">Eseen adds an invisible one-pixel image to the emails you choose to track in Gmail, and shows you when that image is loaded.</p>
+
+  <section><h2>What Eseen does</h2>
+    <ul>
+      <li>Registers a tracked send when you send with tracking on.</li>
+      <li>Shows a per-send status: sent, opened, or possibly opened.</li>
+      <li>Optionally notifies you on first open.</li>
+    </ul>
+  </section>
+
+  <section><h2>What it cannot tell you</h2>
+    <ul>
+      <li>A status describes an <b>image load, never proof anyone read your email</b>.</li>
+      <li>Blocked images can hide real opens; automatic prefetch (for example by Apple Mail or security scanners) can cause false opens. Eseen marks these "possibly opened" when it can recognize them.</li>
+      <li>Eseen never reads email bodies or inbox contents. Only what you compose with tracking on is tracked.</li>
+    </ul>
+  </section>
+
+  <section><h2>Your data</h2>
+    <ul>
+      <li>Recipient addresses are stored as hashes; subject lines only if you opt in, encrypted at rest.</li>
+      <li>No ads, no selling data. Export or delete everything from the dashboard at any time (GDPR export and deletion).</li>
+      <li>Recipients can opt out at the opt-out page; opted-out recipients' opens are no longer recorded for you.</li>
+    </ul>
+  </section>
+
+  <label class="ack"><input type="checkbox" id="ack" /> I understand opens are inferred from image loads, not reading.</label>
+  <div class="row">
+    <button id="go" disabled>Open Gmail and start tracking</button>
+    <button id="later" class="secondary">Set up later</button>
+  </div>
+  <p class="fine">You can review permissions and privacy details anytime from the extension's settings.</p>
+</main><script type="module" src="./main.ts"></script></body>
