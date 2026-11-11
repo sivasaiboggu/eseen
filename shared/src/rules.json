@@ -1,10 +1,12 @@
 {
-  "version": 1,
-  "gmailProxyUaSubstrings": ["googleimageproxy", "ggpht.com"],
-  "applePrivacyUaSubstrings": ["applemail", "apple mail"],
-  "scannerUaSubstrings": ["proofpoint", "mimecast", "barracuda", "safelinks", "microsoft office", "defender", "symantec", "forcepoint"],
-  "applePrefetchWithinSeconds": 5,
-  "gmailPrefetchWithinSeconds": 10,
-  "instantClickWithinSeconds": 3,
-  "note": "Heuristics only. Apple proxy IP ranges must be loaded from Apple's published list at deploy time, not hardcoded here."
+  "version": 2,
+  "gmailProxyUa": ["googleimageproxy"],
+  "gmailPrefetchWithinSeconds": 60,
+  "appleProxyUa": ["applemail", "apple mail"],
+  "scannerUa": ["proofpoint", "mimecast", "barracuda", "safelinks", "microsoft office", "defender", "cisco", "ironport", "symantec", "avanan"],
+  "burstWindowSeconds": 2,
+  "burstMinLoads": 2,
+  "selfViewWindowSeconds": 60,
+  "ipRanges": { "apple": [], "scanner": [], "datacenter": [] },
+  "note": "ipRanges are intentionally empty. Load Apple's published proxy ranges and vendor scanner ranges at deploy time. Until then IP-based rules do not fire and only UA rules apply."
 }

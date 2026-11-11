@@ -1,91 +1,105 @@
 import Fastify from "fastify";
+import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
-import { classify, evaluate, rules } from "@eseen/shared";
+import { classify, deriveStatus, rules } from "@eseen/shared";
 import { MemoryStore, type Msg } from "./store.js";
 import { newId, sign, verify } from "./token.js";
 
-const GIF = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
-export interface Opts { secrets: string[]; baseUrl: string; store?: MemoryStore; now?: () => number; authUser?: (h: Record<string, unknown>) => string | null; }
+// 43-byte transparent GIF
+export const GIF = Buffer.from("R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==", "base64");
+const NO_CACHE = { "Content-Type": "image/gif", "Cache-Control": "no-store, no-cache, must-revalidate, private, max-age=0", Pragma: "no-cache", Expires: "0" };
+export interface Opts { secrets: string[]; baseUrl: string; store?: MemoryStore; now?: () => number; authUser?: (h: Record<string, unknown>) => string | null;
+  /** Maps a raw request IP to coarse flags using rules.ipRanges. Raw IP never leaves this call. */ ipClass?: (ip: string) => { apple?: boolean; scanner?: boolean; datacenter?: boolean }; }
 
 export function buildApp(o: Opts) {
   const app = Fastify({ logger: false });
   const store = o.store ?? new MemoryStore();
   const now = o.now ?? Date.now;
-  // Dev auth: bearer token = user id. Replace with Google ID-token verification before any real use.
+  // DEV AUTH ONLY: bearer token = user id. Replace with Google ID-token verification before any real use.
   const auth = o.authUser ?? ((h) => { const a = String(h.authorization ?? ""); return a.startsWith("Bearer ") ? a.slice(7) : null; });
-  const hits = new Map<string, { n: number; t: number }>();
-  const limited = (key: string) => { const t = now(), h = hits.get(key); if (!h || t - h.t > 60000) { hits.set(key, { n: 1, t }); return false; } return ++h.n > 120; };
+  const unauth = (rep: any) => rep.code(401).send({ error: "unauthorized" });
+
+  const ipHits = new Map<string, { n: number; t: number }>(), tokHits = new Map<string, { n: number; t: number }>();
+  const over = (m: Map<string, { n: number; t: number }>, k: string, max: number) => { const t = now(), h = m.get(k); if (!h || t - h.t > 60000) { m.set(k, { n: 1, t }); return false; } return ++h.n > max; };
+
+  // async log queue: the pixel response never waits on this
+  const queue: (() => void)[] = []; let draining = false;
+  const drain = () => { if (draining) return; draining = true; setImmediate(() => { while (queue.length) queue.shift()!(); draining = false; }); };
+  const flush = async () => { await new Promise((r) => setImmediate(r)); while (queue.length) queue.shift()!(); };
+
+  const salt = (u: string) => { let s = store.salts.get(u); if (!s) store.salts.set(u, (s = randomBytes(16).toString("hex"))); return s; };
+  const hash = (u: string, email: string) => createHash("sha256").update(salt(u) + email.trim().toLowerCase()).digest("hex");
 
   const create = z.object({
-    label: z.string().max(200).optional(),
-    recipients: z.array(z.enum(["to", "cc", "bcc", "single"])).min(1).max(100),
-    links: z.array(z.string().url().max(2048)).max(50).default([]),
+    subjectLabel: z.string().max(200).optional(), // optional, user-controlled; encrypted at rest in the Postgres impl
+    /** Gmail sends ONE body to all recipients. "combined" (default): one pixel, one combined status. "per_recipient": the client sends separate copies, opt-in only. */
+    mode: z.enum(["combined", "per_recipient"]).default("combined"),
+    recipients: z.array(z.object({ email: z.string().email().max(254), label: z.string().max(80).optional() })).max(100).default([]),
+    storeRecipientNames: z.boolean().default(false),
   });
   app.post("/v1/messages", async (req, rep) => {
-    const userId = auth(req.headers); if (!userId) return rep.code(401).send({ error: "unauthorized" });
+    const userId = auth(req.headers); if (!userId) return unauth(rep);
     const p = create.safeParse(req.body); if (!p.success) return rep.code(400).send({ error: "invalid" });
-    if (p.data.links.some((u) => !/^https?:\/\//i.test(u))) return rep.code(400).send({ error: "http/https only" });
-    const id = newId();
-    const m: Msg = { id, userId, label: p.data.label, sentAt: now(), recipients: [], links: [] };
-    p.data.recipients.forEach((kind) => m.recipients.push({ id: newId(), messageId: id, kind }));
-    for (const r of m.recipients) for (const url of p.data.links) m.links.push({ id: newId(), url, messageId: id, recipientId: r.id });
+    const id = newId(), m: Msg = { id, userId, subjectEnc: p.data.subjectLabel, sentAt: now(), mode: p.data.mode, recipients: [] };
+    if (p.data.mode === "combined") m.recipients.push({ id: newId(), messageId: id, label: "All recipients (combined)" });
+    else p.data.recipients.forEach((r) => m.recipients.push({ id: newId(), messageId: id, emailHash: hash(userId, r.email), label: p.data.storeRecipientNames ? r.label : undefined }));
+    if (!m.recipients.length) return rep.code(400).send({ error: "per_recipient needs recipients" });
     store.addMessage(m);
-    return {
-      id,
-      recipients: m.recipients.map((r) => ({ kind: r.kind, pixel: `${o.baseUrl}/p/${sign("p", r.id, o.secrets)}.gif`,
-        links: m.links.filter((l) => l.recipientId === r.id).map((l) => ({ url: l.url, tracked: `${o.baseUrl}/l/${sign("l", l.id, o.secrets)}` })) })),
-    };
+    return { id, mode: m.mode, limitation: m.mode === "combined" ? "Gmail sends one copy to everyone, so this status covers all To/Cc/Bcc recipients together." : undefined,
+      pixels: m.recipients.map((r) => ({ recipientId: r.id, url: `${o.baseUrl}/p/${sign("p", r.id, o.secrets)}.gif` })) };
   });
 
-  const statusFor = (m: Msg, showAll = true) => m.recipients.map((r) => {
-    const evs = store.events.filter((e) => e.recipientId === r.id);
-    return { recipient: r.kind, ...evaluate(evs, m.sentAt), events: showAll ? evs.map(({ id, kind, at, botLabel, suspectedBot, selfOpen }) => ({ id, kind, at, botLabel, suspectedBot, selfOpen })) : undefined };
-  });
+  const view = (m: Msg, showAuto: boolean) => ({ id: m.id, label: m.subjectEnc, sentAt: m.sentAt, mode: m.mode, recipients: m.recipients.map((r) => {
+    const evs = store.eventsFor(r.id).filter((e) => e.classification !== "SELF_OPEN");
+    return { id: r.id, label: r.label, ...deriveStatus(evs, { sentRecently: now() - m.sentAt < 60000 }),
+      events: evs.filter((e) => showAuto || e.classification === "REAL_OPEN").map((e) => ({ at: e.at, classification: e.classification, reason: e.reason, uaFamily: e.uaFamily })) };
+  }) });
   app.get("/v1/messages", async (req, rep) => {
-    const userId = auth(req.headers); if (!userId) return rep.code(401).send({ error: "unauthorized" });
-    const q = z.object({ limit: z.coerce.number().int().min(1).max(100).default(20) }).parse(req.query);
-    return [...store.msgs.values()].filter((m) => m.userId === userId).sort((a, b) => b.sentAt - a.sentAt).slice(0, q.limit)
-      .map((m) => ({ id: m.id, label: m.label, sentAt: m.sentAt, recipients: statusFor(m, false) }));
+    const userId = auth(req.headers); if (!userId) return unauth(rep);
+    const q = z.object({ limit: z.coerce.number().int().min(1).max(100).default(25), showAuto: z.coerce.boolean().default(true) }).parse(req.query);
+    await flush();
+    return [...store.msgs.values()].filter((m) => m.userId === userId).sort((a, b) => b.sentAt - a.sentAt).slice(0, q.limit).map((m) => view(m, q.showAuto));
   });
   app.get<{ Params: { id: string } }>("/v1/messages/:id", async (req, rep) => {
-    const userId = auth(req.headers); if (!userId) return rep.code(401).send({ error: "unauthorized" });
-    const m = store.msgs.get(req.params.id);
-    if (!m || m.userId !== userId) return rep.code(404).send({ error: "not found" });
-    return { id: m.id, label: m.label, sentAt: m.sentAt, recipients: statusFor(m) };
+    const userId = auth(req.headers); if (!userId) return unauth(rep);
+    const m = store.msgs.get(req.params.id); if (!m || m.userId !== userId) return rep.code(404).send({ error: "not found" });
+    await flush(); return view(m, true);
   });
-  app.delete("/v1/me", async (req, rep) => {
-    const userId = auth(req.headers); if (!userId) return rep.code(401).send({ error: "unauthorized" });
-    store.deleteUser(userId); return rep.code(204).send();
+  /** Extension signal: sender is viewing their own sent thread. The next first load within the window counts as SELF_OPEN (heuristic). */
+  app.post<{ Params: { id: string } }>("/v1/messages/:id/self-view", async (req, rep) => {
+    const userId = auth(req.headers); if (!userId) return unauth(rep);
+    const m = store.msgs.get(req.params.id); if (!m || m.userId !== userId) return rep.code(404).send({ error: "not found" });
+    m.selfViewUntil = now() + rules.selfViewWindowSeconds * 1000; return rep.code(204).send();
   });
+  app.delete("/v1/me", async (req, rep) => { const u = auth(req.headers); if (!u) return unauth(rep); store.deleteUser(u); return rep.code(204).send(); });
+  app.get("/v1/export", async (req, rep) => { const u = auth(req.headers); if (!u) return unauth(rep); await flush();
+    return [...store.msgs.values()].filter((m) => m.userId === u).map((m) => view(m, true)); });
   app.post("/v1/optout", async (req, rep) => {
     const p = z.object({ token: z.string().max(200) }).safeParse(req.body); if (!p.success) return rep.code(400).send({ error: "invalid" });
     const rid = verify("p", p.data.token.replace(/\.gif$/, ""), o.secrets); if (rid) store.optouts.add(rid);
-    return rep.code(204).send(); // same answer whether or not token was valid (no oracle)
+    return rep.code(204).send(); // identical answer for valid and invalid tokens
   });
 
+  const lastSeen = new Map<string, number>(); // dedupe: repeats within 3s
   app.get<{ Params: { token: string } }>("/p/:token", async (req, rep) => {
-    rep.header("Cache-Control", "no-store, private, max-age=0").header("Content-Type", "image/gif");
-    if (limited("p:" + req.ip)) return rep.code(429).send(GIF);
+    rep.headers(NO_CACHE);
+    const ip = req.ip, ua = String(req.headers["user-agent"] ?? "").slice(0, 300), marker = req.headers["x-eseen-self"] === "1", at = now();
+    if (over(ipHits, ip, 300)) return rep.send(GIF); // still a GIF, just not logged
     const rid = verify("p", req.params.token.replace(/\.gif$/, ""), o.secrets);
-    const r = rid && store.recips.get(rid);
-    if (r && !store.optouts.has(r.id)) {
-      const m = store.msgs.get(r.messageId)!;
-      const at = now(), ua = String(req.headers["user-agent"] ?? "").slice(0, 300);
-      const self = req.headers["x-eseen-self"] === "1"; // set by the extension for the sender's own browser
-      const label = classify({ kind: "open", at, userAgent: ua }, m.sentAt, rules);
-      store.events.push({ id: newId(), recipientId: r.id, kind: "open", at, userAgent: ua, suspectedBot: label !== null, botLabel: label, selfOpen: self });
+    if (rid && !over(tokHits, rid, 120)) {
+      const ipFlags = o.ipClass?.(ip); // raw IP used here only, never stored
+      queue.push(() => {
+        const r = store.recips.get(rid); if (!r || store.optouts.has(rid)) return;
+        if (at - (lastSeen.get(rid) ?? -1e9) < 3000) return; lastSeen.set(rid, at);
+        const m = store.msgs.get(r.messageId)!, prior = store.eventsFor(rid);
+        const res = classify({ at, userAgent: ua, selfMarker: marker }, { sentAt: m.sentAt, prior, ip: ipFlags, selfViewUntil: m.selfViewUntil });
+        store.events.push({ id: newId(), recipientId: rid, at, ...res, uaFamily: uaFamily(ua), suspectedBot: res.classification === "POSSIBLY_OPENED" });
+      });
+      drain();
     }
-    return rep.send(GIF); // always the same image: no oracle for token guessing
+    return rep.send(GIF);
   });
-  app.get<{ Params: { token: string } }>("/l/:token", async (req, rep) => {
-    if (limited("l:" + req.ip)) return rep.code(429).send();
-    const lid = verify("l", req.params.token, o.secrets);
-    const l = lid && store.links.get(lid);
-    if (!l || !/^https?:\/\//i.test(l.url)) return rep.code(404).send();
-    const m = store.msgs.get(l.messageId)!, at = now(), ua = String(req.headers["user-agent"] ?? "").slice(0, 300);
-    const label = classify({ kind: "click", at, userAgent: ua }, m.sentAt, rules);
-    store.events.push({ id: newId(), recipientId: l.recipientId, kind: "click", at, userAgent: ua, suspectedBot: label !== null, botLabel: label });
-    return rep.code(302).header("Location", l.url).header("Cache-Control", "no-store").send(); // destination is only what the signed token maps to: no open redirect
-  });
-  return { app, store };
+  return { app, store, flush };
 }
+/** Device type from UA only. */
+export function uaFamily(ua: string) { const u = ua.toLowerCase(); return /googleimageproxy|applemail/.test(u) ? "proxy" : /mobile|android|iphone/.test(u) ? "mobile" : /outlook|thunderbird|mail/.test(u) ? "desktop" : u ? "webmail/other" : "unknown"; }

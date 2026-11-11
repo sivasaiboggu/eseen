@@ -1,16 +1,20 @@
-# Eseen (work in progress)
-Email open/click tracker for Gmail. Status: **Phase 1 done** (backend pixel, events, status engine, tests). Extension, dashboard, brand kit not started.
+# Eseen - Know when it's seen. (work in progress, local only)
+Gmail open tracker (Chrome MV3 + Fastify backend). v1 is open tracking only.
 
-## Honest limits
-Tracking pixels cannot prove delivery, who opened, or reading time. Statuses are heuristics with confidence labels. Flagged bot events are kept, never deleted.
+## Status
+Phase 1 (backend, classifier, tests) done. Phase 2 (extension compose hook, token creation, pixel injection) coded and unit-tested, **not tested against live Gmail**. Phases 3-5 not started.
 
 ## Run
     npm install && npm test
-    ESEEN_SECRETS=change-me npm run dev -w backend   # dev auth: Bearer <userId> (replace with Google ID-token check)
+    ESEEN_SECRETS=change-me npm run dev -w backend
+    npm run build -w extension     # then chrome://extensions > Developer mode > Load unpacked > extension/dist
+To test from outside localhost use a Cloudflare Tunnel or ngrok to the backend and set the API URL in the extension (not yet configurable in UI).
 
-## Decisions so far
-- In-memory store behind a seam; Postgres schema in backend/migrations/001_init.sql (not yet wired).
-- Pixel and invalid tokens return the same GIF (no token-guessing oracle). Links redirect only to URLs stored server-side for that signed token.
-- Apple proxy IP ranges are not hardcoded; to be loaded from Apple's published list at deploy time.
-- Self-open filter: extension sends x-eseen-self header (cookie part comes in Phase 4).
-- Redis rate limiting is an in-process limiter for now. Nothing deployed.
+## Known limitations
+- Apple Mail Privacy Protection pre-loads images, so some opens are auto-loaded (shown as Possibly opened).
+- Blocked images mean a real open can be missed ("No open detected").
+- Gmail caches images, so repeat opens can be invisible.
+- Gmail sends one copy to all To/Cc/Bcc, so status is combined unless separate copies are sent. Bcc recipients are never revealed.
+- An open means the image loaded, not that the email was read.
+- IP-based bot rules need real published ranges loaded at deploy time.
+See docs/decisions.md.
