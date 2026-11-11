@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "gmailProxyUaSubstrings": ["googleimageproxy", "ggpht.com"],
+  "applePrivacyUaSubstrings": ["applemail", "apple mail"],
+  "scannerUaSubstrings": ["proofpoint", "mimecast", "barracuda", "safelinks", "microsoft office", "defender", "symantec", "forcepoint"],
+  "applePrefetchWithinSeconds": 5,
+  "gmailPrefetchWithinSeconds": 10,
+  "instantClickWithinSeconds": 3,
+  "note": "Heuristics only. Apple proxy IP ranges must be loaded from Apple's published list at deploy time, not hardcoded here."
+}

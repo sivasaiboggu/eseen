@@ -1,0 +1,7 @@
+{
+  "name": "eseen",
+  "private": true,
+  "type": "module",
+  "workspaces": ["shared", "backend"],
+  "scripts": { "test": "npm test --workspaces --if-present" }
+}
