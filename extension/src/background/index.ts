@@ -5,7 +5,8 @@ import { flushQueue } from "../content/queue";
 
 const API = (import.meta.env.VITE_ESEEN_API as string | undefined) ?? "http://localhost:8787"; // dev default; production URL set at build/deploy
 async function tick() {
-  const s = (await chrome.storage.sync.get({ userId: "dev-user", notifications: false, notifyFirstOpen: false, showAuto: true, google: null as { idToken: string; expiresAt: number } | null })) as { userId: string; google: { idToken: string; expiresAt: number } | null } & NotifyPrefs;
+  const s = (await chrome.storage.sync.get({ userId: "dev-user", notifications: false, notifyFirstOpen: false, showAuto: true, onboarded: false, google: null as { idToken: string; expiresAt: number } | null })) as { userId: string; onboarded: boolean; google: { idToken: string; expiresAt: number } | null } & NotifyPrefs;
+  if (!s.onboarded) return; // consent gate: no queue flush or open-polling before onboarding
   // Fail closed: when a Google client ID is configured at build time, only a valid Google session talks to the API;
   // the dev identity exists only for explicitly local builds. An expired session is cleared so the popup prompts sign-in.
   const googleMode = !!(import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined);

@@ -6,8 +6,9 @@ import { decorate } from "./rows";
 
 const API = (import.meta.env.VITE_ESEEN_API as string | undefined) ?? "http://localhost:8787"; // dev only; production URL set at build/deploy, never silently
 const wired = new WeakSet<Element>(), bypass = new WeakSet<Element>();
-type S = { enabled: boolean; userId: string; storeSubjects?: boolean; showAutoLoaded?: boolean };
-const settings = () => chrome.storage.sync.get({ enabled: true, userId: "dev-user", storeSubjects: false, showAutoLoaded: false }) as Promise<S>;
+type S = { enabled: boolean; userId: string; storeSubjects?: boolean; showAutoLoaded?: boolean; onboarded?: boolean };
+// Consent gate: onboarding's acknowledgment sets onboarded. Until then nothing registers, injects, or decorates.
+const settings = () => chrome.storage.sync.get({ enabled: true, userId: "dev-user", storeSubjects: false, showAutoLoaded: false, onboarded: false }) as Promise<S>;
 
 function banner(text: string) { // fail safely: small notice, never break Gmail
   if (document.getElementById("eseen-banner")) return;
@@ -39,6 +40,7 @@ function wire(root: Element) {
       if (!toggle.checked) return;
       ev.stopImmediatePropagation(); ev.preventDefault(); // hold the send until tracking exists or the user decides
       const cfg = await settings();
+      if (!cfg.onboarded) { bypass.add(send); send.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })); return; } // no consent yet: send normally, never track
       const recips = readRecipients(root).map((x) => x.email);
       const subject = cfg.storeSubjects ? (root.querySelector<HTMLInputElement>(selectors.subjectInput)?.value || undefined) : undefined; // subjects stay in Gmail unless the user opts in
       const res = await prepareSend(body, { base: API, userId: cfg.userId }, recips, () => window.confirm("Eseen couldn't set up tracking. Send without tracking?"), subject);
@@ -48,14 +50,19 @@ function wire(root: Element) {
   });
 }
 const APP_ID = import.meta.env.VITE_INBOXSDK_APP_ID as string | undefined;
+const consented = async () => (await settings()).onboarded === true;
 if (APP_ID) {
-  startInboxSdk(APP_ID, async () => ({ base: API, userId: (await settings()).userId }), async () => (await settings()).enabled, (v) => void chrome.storage.sync.set({ enabled: v }))
-    .catch(() => banner("Eseen needs an update"));
+  void consented().then((ok) => { if (!ok) return; // consent gate: no InboxSDK wiring before onboarding
+    startInboxSdk(APP_ID, async () => ({ base: API, userId: (await settings()).userId }), async () => (await settings()).enabled, (v) => void chrome.storage.sync.set({ enabled: v }))
+      .catch(() => banner("Eseen needs an update")); });
 } else {
 let t: number | undefined;
 const scan = () => { try {
-  document.querySelectorAll(selectors.composeRoot).forEach(wire);
-  void settings().then((s) => decorate(document, { base: API, userId: s.userId }, { showAuto: s.showAutoLoaded ?? false })).catch(() => { /* badges are cosmetic; the next scan retries */ });
+  void settings().then((s) => {
+    if (!s.onboarded) return; // consent gate: no wiring, no badges before onboarding
+    document.querySelectorAll(selectors.composeRoot).forEach(wire);
+    decorate(document, { base: API, userId: s.userId }, { showAuto: s.showAutoLoaded ?? false }).catch(() => { /* badges are cosmetic; the next scan retries */ });
+  });
 } catch { banner("Eseen needs an update"); } };
 scan(); // initial pass: a static compose (or one opened before idle) has no mutation to trigger the observer
 new MutationObserver(() => { clearTimeout(t); t = window.setTimeout(scan, 200); }).observe(document.body, { childList: true, subtree: true });

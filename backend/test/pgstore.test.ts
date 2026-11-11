@@ -55,3 +55,30 @@ describe("PgStore at-rest encryption", () => {
     expect(Buffer.from(rawR.rows[0].display_label_encrypted).toString("latin1")).not.toContain("Priya");
   });
 });
+
+describe("PgStore key enforcement (fail closed)", () => {
+  it("refuses to start in production mode without a valid 32-byte key", async () => {
+    const { Pool } = newDb().adapters.createPg();
+    await expect(PgStore.connect(new Pool(), { requireKey: true })).rejects.toThrow(/ESEEN_DATA_KEY/);
+    await expect(PgStore.connect(new Pool(), { requireKey: true, dataKey: Buffer.alloc(16) })).rejects.toThrow(/ESEEN_DATA_KEY/);
+  });
+  it("refuses to store opt-in subjects/labels without a key - never silently plaintext", async () => {
+    const { Pool } = newDb().adapters.createPg();
+    const store = await PgStore.connect(new Pool()); // no key: fine for data without opt-in labels
+    await store.addMessage({ id: "ok1", userId: "u", sentAt: 1, mode: "combined", recipients: [] });
+    await expect(store.addMessage({ id: "bad1", userId: "u", subjectEnc: "secret", sentAt: 1, mode: "combined", recipients: [] })).rejects.toThrow(/no data key/);
+    await expect(store.addMessage({ id: "bad2", userId: "u", sentAt: 1, mode: "per_recipient", recipients: [{ id: "r", messageId: "bad2", label: "Priya" }] })).rejects.toThrow(/no data key/);
+  });
+  it("full store round-trip: encrypt at write, decrypt at read, no plaintext at rest", async () => {
+    const { Pool } = newDb().adapters.createPg(); const pool = new Pool();
+    const store = await PgStore.connect(pool, { dataKey: Buffer.alloc(32, 7), requireKey: true });
+    await store.addMessage({ id: "m1", userId: "u", subjectEnc: "Q3 proposal", sentAt: 1, mode: "per_recipient", recipients: [{ id: "r1", messageId: "m1", emailHash: "h", label: "Priya" }] });
+    const raw = (await pool.query("select subject_encrypted from messages where id = 'm1'")).rows[0].subject_encrypted;
+    expect(raw).not.toContain("Q3 proposal");
+    const back = await store.getMessage("m1");
+    expect(back?.subjectEnc).toBe("Q3 proposal"); expect(back?.recipients[0].label).toBe("Priya");
+    expect((await store.getRecipient("r1"))?.label).toBe("Priya");
+    const listed = await store.listMessages("u", 10);
+    expect(listed[0].subjectEnc).toBe("Q3 proposal");
+  });
+});

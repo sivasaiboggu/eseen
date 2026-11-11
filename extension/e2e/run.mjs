@@ -17,10 +17,21 @@ try {
   });
   await ctx.route("https://mail.google.com/api/v1/events", (r) => r.abort()); // registered last so it wins: route.fetch can't proxy a never-ending stream; the popup falls back to polling (exercised below), and the stream itself is covered by the backend test
   const page = await ctx.newPage(); page.on("console", (m) => console.log("page:", m.text())); page.on("pageerror", (e) => console.log("pageerror:", e.message)); page.on("dialog", (d) => { console.log("dialog:", d.message()); void d.accept(); });
+  // Consent gate: before onboarding, nothing wires, injects, or registers - the send goes through untracked.
   await page.goto("https://mail.google.com/mock");
   await page.waitForSelector("#send"); await page.waitForTimeout(1500);
+  const togglesBefore = await page.evaluate(() => [...document.querySelectorAll("span")].filter((s) => s.shadowRoot?.querySelector("input[type=checkbox]")).length);
+  assert.equal(togglesBefore, 0, "no Eseen toggle before onboarding consent");
+  await page.click("#send"); await page.waitForTimeout(1500);
+  const sentBefore = await page.evaluate(() => window.__sent); assert.ok(sentBefore, "send still works before consent");
+  assert.ok(!sentBefore.includes("data-eseen"), "no pixel injected before consent");
+  const beforeList = await (await fetch("http://localhost:8787/v1/messages", { headers: { authorization: "Bearer dev-user" } })).json();
+  assert.equal(beforeList.length, 0, "nothing registered before consent");
+  const sw0 = ctx.serviceWorkers()[0] ?? await ctx.waitForEvent("serviceworker");
+  await sw0.evaluate(() => chrome.storage.sync.set({ onboarded: true })); // user completes onboarding
+  await page.reload(); await page.waitForSelector("#send"); await page.waitForTimeout(1500);
   const toggles = await page.evaluate(() => [...document.querySelectorAll("span")].filter((s) => s.shadowRoot?.querySelector("input[type=checkbox]")).length);
-  assert.equal(toggles, 1, "Eseen toggle injected beside Send");
+  assert.equal(toggles, 1, "Eseen toggle injected beside Send after consent");
   await page.click("#send"); await page.waitForTimeout(2500);
   const sent = await page.evaluate(() => window.__sent); assert.ok(sent, "send went through");
   const m = sent.match(/<img[^>]*data-eseen[^>]*src="([^"]+)"/) ?? sent.match(/<img[^>]*src="([^"]+)"[^>]*data-eseen/); assert.ok(m, "pixel present in sent body: " + sent);
