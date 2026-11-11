@@ -28,7 +28,8 @@ try {
   const list = async () => (await (await fetch("http://localhost:8787/v1/messages", { headers: { authorization: "Bearer dev-user" } })).json())[0];
   let msg = await list(); assert.equal(msg.recipients.length, 1); assert.equal(msg.mode, "combined");
   await get("Mozilla/5.0 AppleMail"); await new Promise((r) => setTimeout(r, 300)); msg = await list();
-  assert.equal(msg.recipients[0].status, "POSSIBLY_OPENED"); console.log("after Apple proxy hit:", msg.recipients[0].label);
+  assert.equal(msg.recipients[0].status, "POSSIBLY_OPENED");
+  assert.match(msg.recipients[0].events[0].reason, /viewed your own sent email/, "first load inside the self-view window stays an honest 'could be you' hint, not an open"); console.log("after Apple proxy hit:", msg.recipients[0].label);
   await new Promise((r) => setTimeout(r, 3200)); await get("Mozilla/5.0 Chrome/150"); await new Promise((r) => setTimeout(r, 300)); msg = await list();
   assert.equal(msg.recipients[0].status, "OPENED"); console.log("after real-looking hit:", msg.recipients[0].label, "opens:", msg.recipients[0].openCount);
   await page.screenshot({ path: path.join(shots, "mock-compose.png") });
