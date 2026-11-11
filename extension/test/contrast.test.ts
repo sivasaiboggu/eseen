@@ -1,0 +1,6 @@
+import { describe, it, expect } from "vitest";
+function rgb(hex: string): [number, number, number] { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+function lum(hex: string): number { const [r, g, b] = rgb(hex).map(v => { const x = v / 255; return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; }
+export function contrast(a: string, b: string): number { const x = lum(a), y = lum(b), hi = Math.max(x, y), lo = Math.min(x, y); return (hi + 0.05) / (lo + 0.05); }
+const pairs: [string, string, string][] = [["text/bg", "#12141D", "#FFFFFF"], ["muted/bg", "#626A80", "#FFFFFF"], ["accent/soft", "#4F46E5", "#EEF0FF"], ["success/soft", "#047857", "#E7F8F0"], ["warning/soft", "#B45309", "#FEF3E2"], ["dark text/bg", "#ECEEF5", "#0E1016"], ["dark muted/bg", "#8A92A8", "#0E1016"], ["dark accent/soft", "#818CF8", "#1E2142"], ["dark success/soft", "#34D399", "#0F2A22"], ["dark warning/soft", "#FBBF24", "#2E2410"]];
+describe("WCAG AA contrast", () => { for (const [name, fg, bg] of pairs) it(`${name} is >= 4.5:1`, () => expect(contrast(fg, bg)).toBeGreaterThanOrEqual(4.5)); });
