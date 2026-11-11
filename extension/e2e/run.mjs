@@ -36,6 +36,11 @@ try {
   assert.equal(msg.recipients[0].status, "POSSIBLY_OPENED"); console.log("after Apple proxy hit:", msg.recipients[0].label, "events:", msg.recipients[0].events.length);
   await new Promise((r) => setTimeout(r, 3200)); await get("Mozilla/5.0 Chrome/150"); await new Promise((r) => setTimeout(r, 300)); msg = await list();
   assert.equal(msg.recipients[0].status, "OPENED"); console.log("after real-looking hit:", msg.recipients[0].label, "opens:", msg.recipients[0].openCount);
+  // background notifications: enable them, drive the worker tick, confirm the open is recorded
+  const bg = ctx.serviceWorkers()[0] ?? await ctx.waitForEvent("serviceworker");
+  await bg.evaluate(async () => { await chrome.storage.sync.set({ notifications: true, notifyFirstOpen: false }); await (self).__eseenTick(); });
+  const seenState = await bg.evaluate(() => chrome.storage.local.get({ seen: {} }).then((s) => s.seen));
+  assert.ok(Object.values(seenState).some((v) => v >= 1), "background tick recorded the open for notifications");
   await page.screenshot({ path: path.join(shots, "mock-compose.png") });
   // popup
   const sw = ctx.serviceWorkers()[0] ?? await ctx.waitForEvent("serviceworker"); const id = sw.url().split("/")[2];
@@ -64,8 +69,11 @@ try {
   // settings: wired controls persist, unavailable ones are visibly disabled
   await pop.click(".icon-btn[aria-label='Settings']"); await pop.waitForTimeout(250);
   await pop.screenshot({ path: path.join(shots, "popup-settings.png") });
-  assert.match(await pop.textContent(".settings-panel"), /Not available yet/, "unavailable settings carry a visible reason");
-  assert.ok(await pop.$(".switch[aria-label='Desktop notifications'][disabled]"), "notification switch disabled until it ships");
+  assert.match(await pop.textContent(".settings-panel"), /Desktop notifications/, "notifications settings are wired, not disabled placeholders");
+  const notifBefore = await pop.evaluate(() => chrome.storage.sync.get({ notifications: false }).then((s) => s.notifications));
+  await pop.click(".switch[aria-label='Desktop notifications']"); await pop.waitForTimeout(150);
+  assert.equal(await pop.evaluate(() => chrome.storage.sync.get({ notifications: false }).then((s) => s.notifications)), !notifBefore, "notification setting persisted");
+  await pop.click(".switch[aria-label='Desktop notifications']"); await pop.waitForTimeout(150);
   await pop.click(".switch[aria-label='Show auto-loaded opens']"); await pop.waitForTimeout(150);
   assert.equal(await pop.evaluate(() => chrome.storage.sync.get({ showAuto: true }).then((s) => s.showAuto)), false, "showAuto persisted off");
   await pop.click(".switch[aria-label='Show auto-loaded opens']"); await pop.waitForTimeout(150);

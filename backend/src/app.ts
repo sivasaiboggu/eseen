@@ -97,6 +97,19 @@ export function buildApp(o: Opts) {
     return rep.code(204).send(); // identical answer for valid and invalid tokens
   });
 
+  // live event stream: one fan-out per user, fed by logged open events
+  const subs = new Map<string, Set<(s: string) => void>>();
+  const broadcast = (userId: string, payload: unknown) => { const set = subs.get(userId); if (!set) return; const s = `data: ${JSON.stringify(payload)}\n\n`; for (const w of set) { try { w(s); } catch { /* dropped */ } } };
+  app.get("/v1/events", (req, rep) => {
+    const userId = auth(req.headers); if (!userId) return unauth(rep);
+    const o = String(req.headers.origin ?? "");
+    rep.raw.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive", ...(o ? { "access-control-allow-origin": o, vary: "Origin", "access-control-allow-private-network": "true" } : {}) });
+    const set = subs.get(userId) ?? new Set(); subs.set(userId, set);
+    const w = (s: string) => rep.raw.write(s); set.add(w);
+    rep.raw.write(": connected\n\n");
+    const ping = setInterval(() => { try { rep.raw.write(": ping\n\n"); } catch { /* closed */ } }, 25000);
+    req.raw.on("close", () => { clearInterval(ping); set.delete(w); });
+  });
   const lastSeen = new Map<string, number>(); // dedupe: repeats within 3s
   app.get<{ Params: { token: string } }>("/p/:token", async (req, rep) => {
     rep.headers(NO_CACHE);
@@ -110,7 +123,9 @@ export function buildApp(o: Opts) {
         if (at - (lastSeen.get(rid) ?? -1e9) < 3000) return; lastSeen.set(rid, at);
         const m = store.msgs.get(r.messageId)!, prior = store.eventsFor(rid);
         const res = classify({ at, userAgent: ua, selfMarker: marker }, { sentAt: m.sentAt, prior, ip: ipFlags, selfViewUntil: m.selfViewUntil });
-        store.events.push({ id: newId(), recipientId: rid, at, ...res, uaFamily: uaFamily(ua), suspectedBot: res.classification === "POSSIBLY_OPENED" });
+        const ev = { id: newId(), recipientId: rid, at, ...res, uaFamily: uaFamily(ua), suspectedBot: res.classification === "POSSIBLY_OPENED" };
+        store.events.push(ev);
+        broadcast(m.userId, { messageId: m.id, recipientId: rid, classification: res.classification, at, reason: res.reason });
       });
       drain();
     }

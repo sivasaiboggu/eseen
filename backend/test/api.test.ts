@@ -51,6 +51,26 @@ describe("send acknowledgement", () => {
     expect(m.recipients[0].status).not.toBe("SENT");
   });
 });
+describe("live events stream", () => {
+  it("requires auth and streams logged open events", async () => {
+    const { app, hit, clock } = await setup();
+    expect((await app.inject({ url: "/v1/events" })).statusCode).toBe(401);
+    await app.listen({ port: 0 });
+    try {
+      const port = (app.server.address() as { port: number }).port;
+      const res = await fetch(`http://127.0.0.1:${port}/v1/events`, { headers: H });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toContain("text/event-stream");
+      const reader = res.body!.getReader();
+      const first = await reader.read();
+      expect(new TextDecoder().decode(first.value)).toContain(": connected");
+      clock.adv(1000); await hit("Chrome");
+      const chunk = await reader.read();
+      expect(new TextDecoder().decode(chunk.value)).toContain("REAL_OPEN");
+      await reader.cancel();
+    } finally { await app.close(); }
+  });
+});
 describe("status flow", () => {
   it("combined mode by default, with the limitation stated", async () => {
     const { body } = await setup({ recipients: [{ email: "a@x.com" }, { email: "b@x.com" }] });

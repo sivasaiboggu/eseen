@@ -86,8 +86,8 @@ export function SettingsPanel({ prefs, onPrefs, dataActions, onClose, onDownload
     <Switch checked={prefs.enabled} label="Tracking on by default" onChange={(v) => onPrefs({ enabled: v })}/>
     <Switch checked={prefs.showAuto} label="Show auto-loaded opens" help="Off hides possible machine opens from the list" onChange={(v) => onPrefs({ showAuto: v })}/>
     <Switch checked={prefs.storeSubjects} label="Store email subjects" help="Off = privacy mode; subjects never leave Gmail" onChange={(v) => onPrefs({ storeSubjects: v })}/>
-    <Switch checked={prefs.notifications} label="Desktop notifications" disabled help="Not available yet — notifications ship in a later phase" onChange={() => {}}/>
-    <Switch checked={prefs.notifyFirstOpen} label="Notify only on first open" disabled help="Not available yet — notifications ship in a later phase" onChange={() => {}}/>
+    <Switch checked={prefs.notifications} label="Desktop notifications" help="When a tracked email is opened" onChange={(v) => onPrefs({ notifications: v })}/>
+    <Switch checked={prefs.notifyFirstOpen} label="Notify only on first open" onChange={(v) => onPrefs({ notifyFirstOpen: v })}/>
     <div className="setting-row"><div><div className="setting-label">Dark mode</div></div><div className="segmented-mode">{(["system", "light", "dark"] as Theme[]).map((t) => <button key={t} aria-pressed={prefs.theme === t} onClick={() => onPrefs({ theme: t })}>{t === "system" ? <Monitor size={12}/> : t === "light" ? <Sun size={12}/> : <Moon size={12}/>} {t}</button>)}</div></div>
     <div className="danger-zone"><div className="setting-row"><button className="secondary-btn" disabled={!dataActions} onClick={onDownload}><Download size={12}/> Download my data</button><button className="danger-btn" disabled={!dataActions} onClick={() => setConfirm(true)}><Trash2 size={12}/> Delete all my data</button></div>
     {!dataActions && <div className="data-note">Available when connected to the local API — this is demo data.</div>}</div>
