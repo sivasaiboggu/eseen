@@ -2,13 +2,13 @@ import Fastify from "fastify";
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { classify, deriveStatus, rules } from "@eseen/shared";
-import { MemoryStore, type Msg } from "./store.js";
+import { MemoryStore, type Msg, type Store } from "./store.js";
 import { newId, sign, verify } from "./token.js";
 
 // 43-byte transparent GIF
 export const GIF = Buffer.from("R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==", "base64");
 const NO_CACHE = { "Content-Type": "image/gif", "Cache-Control": "no-store, no-cache, must-revalidate, private, max-age=0", Pragma: "no-cache", Expires: "0" };
-export interface Opts { secrets: string[]; baseUrl: string; store?: MemoryStore; now?: () => number; authUser?: (h: Record<string, unknown>) => string | null;
+export interface Opts { secrets: string[]; baseUrl: string; store?: Store; now?: () => number; authUser?: (h: Record<string, unknown>) => string | null;
   /** Maps a raw request IP to coarse flags using rules.ipRanges. Raw IP never leaves this call. */ ipClass?: (ip: string) => { apple?: boolean; scanner?: boolean; datacenter?: boolean }; }
 
 export function buildApp(o: Opts) {
@@ -33,12 +33,11 @@ export function buildApp(o: Opts) {
   const over = (m: Map<string, { n: number; t: number }>, k: string, max: number) => { const t = now(), h = m.get(k); if (!h || t - h.t > 60000) { m.set(k, { n: 1, t }); return false; } return ++h.n > max; };
 
   // async log queue: the pixel response never waits on this
-  const queue: (() => void)[] = []; let draining = false;
-  const drain = () => { if (draining) return; draining = true; setImmediate(() => { while (queue.length) queue.shift()!(); draining = false; }); };
-  const flush = async () => { await new Promise((r) => setImmediate(r)); while (queue.length) queue.shift()!(); };
+  const queue: (() => Promise<void>)[] = []; let draining = false;
+  const drain = () => { if (draining) return; draining = true; setImmediate(() => { void (async () => { while (queue.length) await queue.shift()!(); draining = false; })(); }); };
+  const flush = async () => { await new Promise((r) => setImmediate(r)); while (queue.length) await queue.shift()!(); };
 
-  const salt = (u: string) => { let s = store.salts.get(u); if (!s) store.salts.set(u, (s = randomBytes(16).toString("hex"))); return s; };
-  const hash = (u: string, email: string) => createHash("sha256").update(salt(u) + email.trim().toLowerCase()).digest("hex");
+  const hash = (salt: string, email: string) => createHash("sha256").update(salt + email.trim().toLowerCase()).digest("hex");
 
   const create = z.object({
     opId: z.string().max(100).optional(), // client idempotency key: retries after a lost response return the original registration instead of creating an orphan
@@ -51,56 +50,56 @@ export function buildApp(o: Opts) {
   app.post("/v1/messages", async (req, rep) => {
     const userId = auth(req.headers); if (!userId) return unauth(rep);
     const p = create.safeParse(req.body); if (!p.success) return rep.code(400).send({ error: "invalid" });
-    if (p.data.opId) { const hit = store.ops.get(`${userId}:${p.data.opId}`); if (hit) return hit; } // committed earlier; response lost in transit
+    if (p.data.opId) { const hit = await store.getOp(`${userId}:${p.data.opId}`); if (hit) return hit; } // committed earlier; response lost in transit
+    const salt = await store.getSalt(userId);
     const id = newId(), m: Msg = { id, userId, subjectEnc: p.data.subjectLabel, sentAt: now(), mode: p.data.mode, recipients: [] };
     if (p.data.mode === "combined") m.recipients.push({ id: newId(), messageId: id, label: "All recipients (combined)" });
-    else p.data.recipients.forEach((r) => m.recipients.push({ id: newId(), messageId: id, emailHash: hash(userId, r.email), label: p.data.storeRecipientNames ? r.label : undefined }));
+    else p.data.recipients.forEach((r) => m.recipients.push({ id: newId(), messageId: id, emailHash: hash(salt, r.email), label: p.data.storeRecipientNames ? r.label : undefined }));
     if (!m.recipients.length) return rep.code(400).send({ error: "per_recipient needs recipients" });
-    store.addMessage(m);
+    await store.addMessage(m);
     const created = { id, mode: m.mode, limitation: m.mode === "combined" ? "Gmail sends one copy to everyone, so this status covers all To/Cc/Bcc recipients together." : undefined,
       pixels: m.recipients.map((r) => ({ recipientId: r.id, url: `${o.baseUrl}/p/${sign("p", r.id, o.secrets)}.gif` })) };
-    if (p.data.opId) store.ops.set(`${userId}:${p.data.opId}`, created);
+    if (p.data.opId) await store.setOp(`${userId}:${p.data.opId}`, created);
     return created;
   });
 
-  const view = (m: Msg, showAuto: boolean) => ({ id: m.id, label: m.subjectEnc, sentAt: m.sentAt, mode: m.mode, threadId: m.threadId, recipients: m.recipients.map((r) => {
-    const evs = store.eventsFor(r.id).filter((e) => e.classification !== "SELF_OPEN");
+  const view = async (m: Msg, showAuto: boolean) => ({ id: m.id, label: m.subjectEnc, sentAt: m.sentAt, mode: m.mode, threadId: m.threadId, recipients: await Promise.all(m.recipients.map(async (r) => {
+    const evs = (await store.eventsFor(r.id)).filter((e) => e.classification !== "SELF_OPEN");
     return { id: r.id, label: r.label, ...deriveStatus(evs, { sentRecently: now() - m.sentAt < 60000, sendAcked: m.sentAckedAt !== undefined }),
       events: evs.filter((e) => showAuto || e.classification === "REAL_OPEN").map((e) => ({ at: e.at, classification: e.classification, reason: e.reason, uaFamily: e.uaFamily })) };
-  }) });
+  })) });
   app.get("/v1/messages", async (req, rep) => {
     const userId = auth(req.headers); if (!userId) return unauth(rep);
     const q = z.object({ limit: z.coerce.number().int().min(1).max(100).default(25), showAuto: z.coerce.boolean().default(true) }).parse(req.query);
     await flush();
-    return [...store.msgs.values()].filter((m) => m.userId === userId).sort((a, b) => b.sentAt - a.sentAt).slice(0, q.limit).map((m) => view(m, q.showAuto));
+    return Promise.all((await store.listMessages(userId, q.limit)).map((m) => view(m, q.showAuto)));
   });
   app.get<{ Params: { id: string } }>("/v1/messages/:id", async (req, rep) => {
     const userId = auth(req.headers); if (!userId) return unauth(rep);
-    const m = store.msgs.get(req.params.id); if (!m || m.userId !== userId) return rep.code(404).send({ error: "not found" });
+    const m = await store.getMessage(req.params.id); if (!m || m.userId !== userId) return rep.code(404).send({ error: "not found" });
     await flush(); return view(m, true);
   });
   /** Extension signal: sender is viewing their own sent thread. The next first load within the window stays POSSIBLY_OPENED, an unverified timing hint. */
   app.post<{ Params: { id: string } }>("/v1/messages/:id/self-view", async (req, rep) => {
     const userId = auth(req.headers); if (!userId) return unauth(rep);
-    const m = store.msgs.get(req.params.id); if (!m || m.userId !== userId) return rep.code(404).send({ error: "not found" });
-    m.selfViewUntil = now() + rules.selfViewWindowSeconds * 1000; return rep.code(204).send();
+    const m = await store.getMessage(req.params.id); if (!m || m.userId !== userId) return rep.code(404).send({ error: "not found" });
+    await store.setSelfViewUntil(req.params.id, now() + rules.selfViewWindowSeconds * 1000); return rep.code(204).send();
   });
   /** Extension signal: the send was confirmed by a Gmail-level signal (InboxSDK sent event). Idempotent; first ack wins. Registration alone never implies sent. */
   app.post<{ Params: { id: string } }>("/v1/messages/:id/sent-ack", async (req, rep) => {
     const userId = auth(req.headers); if (!userId) return unauth(rep);
-    const m = store.msgs.get(req.params.id); if (!m || m.userId !== userId) return rep.code(404).send({ error: "not found" });
+    const m = await store.getMessage(req.params.id); if (!m || m.userId !== userId) return rep.code(404).send({ error: "not found" });
     const p = z.object({ threadId: z.string().max(200).optional() }).partial().safeParse(req.body ?? {});
     if (!p.success) return rep.code(400).send({ error: "invalid" });
-    if (m.sentAckedAt === undefined) m.sentAckedAt = now();
-    if (m.threadId === undefined && p.data.threadId) m.threadId = p.data.threadId; // first ack wins, id and thread alike
+    await store.ackSent(req.params.id, now(), p.data.threadId); // first ack wins, id and thread alike
     return rep.code(204).send();
   });
-  app.delete("/v1/me", async (req, rep) => { const u = auth(req.headers); if (!u) return unauth(rep); store.deleteUser(u); return rep.code(204).send(); });
+  app.delete("/v1/me", async (req, rep) => { const u = auth(req.headers); if (!u) return unauth(rep); await store.deleteUser(u); return rep.code(204).send(); });
   app.get("/v1/export", async (req, rep) => { const u = auth(req.headers); if (!u) return unauth(rep); await flush();
-    return [...store.msgs.values()].filter((m) => m.userId === u).map((m) => view(m, true)); });
+    return Promise.all((await store.listMessages(u, 1000)).map((m) => view(m, true))); });
   app.post("/v1/optout", async (req, rep) => {
     const p = z.object({ token: z.string().max(200) }).safeParse(req.body); if (!p.success) return rep.code(400).send({ error: "invalid" });
-    const rid = verify("p", p.data.token.replace(/\.gif$/, ""), o.secrets); if (rid) store.optouts.add(rid);
+    const rid = verify("p", p.data.token.replace(/\.gif$/, ""), o.secrets); if (rid) await store.optOut(rid);
     return rep.code(204).send(); // identical answer for valid and invalid tokens
   });
 
@@ -125,13 +124,13 @@ export function buildApp(o: Opts) {
     const rid = verify("p", req.params.token.replace(/\.gif$/, ""), o.secrets);
     if (rid && !over(tokHits, rid, 120)) {
       const ipFlags = o.ipClass?.(ip); // raw IP used here only, never stored
-      queue.push(() => {
-        const r = store.recips.get(rid); if (!r || store.optouts.has(rid)) return;
+      queue.push(async () => {
+        const r = await store.getRecipient(rid); if (!r || (await store.isOptedOut(rid))) return;
         if (at - (lastSeen.get(rid) ?? -1e9) < 3000) return; lastSeen.set(rid, at);
-        const m = store.msgs.get(r.messageId)!, prior = store.eventsFor(rid);
+        const m = (await store.getMessage(r.messageId))!, prior = await store.eventsFor(rid);
         const res = classify({ at, userAgent: ua, selfMarker: marker }, { sentAt: m.sentAt, prior, ip: ipFlags, selfViewUntil: m.selfViewUntil });
         const ev = { id: newId(), recipientId: rid, at, ...res, uaFamily: uaFamily(ua), suspectedBot: res.classification === "POSSIBLY_OPENED" };
-        store.events.push(ev);
+        await store.addEvent(ev);
         broadcast(m.userId, { messageId: m.id, recipientId: rid, classification: res.classification, at, reason: res.reason });
       });
       drain();

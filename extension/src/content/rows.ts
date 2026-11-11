@@ -3,7 +3,7 @@ import { renderBadge, renderCard, type CardEvent } from "../ui/status";
 import type { Api } from "./tracking";
 /** List badges / thread cards. Associations are exact-thread-ID only (reported by a Gmail-level sent-ack); a fallback-path send has no thread ID and stays unbadged rather than guessed by subject. A thread ID names a conversation, not one email: several tracked sends can share a thread, so rows aggregate ALL of them and each send gets its own card - one send's opens are never shown as another's. */
 export interface RecipientView { id: string; label?: string; events: (CardEvent & StoredOpen)[] }
-export interface TrackedView { id: string; threadId?: string; sentAt: number; mode: "combined" | "per_recipient"; recipients: RecipientView[] }
+export interface TrackedView { id: string; threadId?: string; sentAt: number; label?: string; mode: "combined" | "per_recipient"; recipients: RecipientView[] }
 let cache: { at: number; userId: string; byThread: Map<string, TrackedView[]> } | undefined;
 const TTL = 30_000; // freshness floor: debounced observers, no polling storms (spec s13)
 export async function trackedByThread(api: Api, now = Date.now()): Promise<Map<string, TrackedView[]>> {
@@ -54,9 +54,9 @@ export async function decorate(root: ParentNode, api: Api, opts: { showAuto: boo
     const msgs = byThread.get(thread.getAttribute("data-thread-id")!);
     if (!msgs?.length) return;
     carded.add(thread);
-    for (const m of [...msgs].reverse()) // newest send first; each card shows only that send's opens
+    for (const m of msgs) // sorted oldest-first; prepending puts the newest send's card on top, each with only that send's opens
       for (const r of m.recipients) {
-        const c = renderCard(deriveStatus(r.events, { sendAcked: true }), r.events, { combined: m.mode === "combined", now: opts.now, showAuto: opts.showAuto });
+        const c = renderCard(deriveStatus(r.events, { sendAcked: true }), r.events, { combined: m.mode === "combined", now: opts.now, showAuto: opts.showAuto, sentAt: m.sentAt, subject: m.label }); // per-send identification: sent time (+ subject when the user opted to store it)
         c.dataset.eseenUid = api.userId;
         thread.prepend(c);
         placed++;

@@ -17,13 +17,14 @@ export function renderBadge(d: Derived): HTMLElement {
   return h; // icon only so it never shifts Gmail's row layout
 }
 export interface CardEvent { at: number; classification: string; reason: string; uaFamily?: string }
-export function renderCard(d: Derived, events: CardEvent[], opts: { combined: boolean; now?: number; showAuto?: boolean }): HTMLElement {
+export function renderCard(d: Derived, events: CardEvent[], opts: { combined: boolean; now?: number; showAuto?: boolean; sentAt?: number; subject?: string }): HTMLElement {
   let showAuto = opts.showAuto ?? false;
   const { h, r } = host("<div class='card' role='group' aria-label='Eseen'></div>");
   const paint = () => {
     const shown = events.filter((e) => showAuto || e.classification === "REAL_OPEN");
     const devices = [...new Set(events.filter((e) => e.classification === "REAL_OPEN" && e.uaFamily).map((e) => e.uaFamily!))].join(", ");
     r.querySelector(".card")!.innerHTML = `<h4><span>Eseen</span><button type="button" id="t">${showAuto ? "Hide" : "Show"} auto-loaded opens (${d.autoLoadedCount})</button></h4>
+      ${opts.sentAt ? `<div class="s">Sent <span title="${exact(opts.sentAt)}">${rel(opts.sentAt, opts.now)}</span>${opts.subject ? ` · ${esc(opts.subject)}` : ""}</div>` : ""}
       <div class="r"><span>${opts.combined ? "All recipients (combined)" : "Recipient"}</span><span class="b ${d.status}" title="${esc(d.tooltip)}" tabindex="0">${ICON[d.status]} ${esc(d.label)}</span></div>
       ${d.firstOpenedAt ? `<div class="s">First opened <span title="${exact(d.firstOpenedAt)}">${rel(d.firstOpenedAt, opts.now)}</span> \u00B7 last <span title="${exact(d.lastOpenedAt!)}">${rel(d.lastOpenedAt!, opts.now)}</span> \u00B7 ${d.openCount} open${d.openCount === 1 ? "" : "s"}${devices ? ` \u00B7 ${esc(devices)}` : ""}</div>` : ""}
       ${shown.filter((e) => e.classification !== "REAL_OPEN").map((e) => `<div class="s">\u25CC ${rel(e.at, opts.now)}: ${esc(e.reason)}</div>`).join("")}

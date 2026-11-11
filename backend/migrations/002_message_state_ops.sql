@@ -1,0 +1,2 @@
+alter table messages add column if not exists self_view_until timestamptz, add column if not exists sent_acked_at timestamptz, add column if not exists thread_id text, add column if not exists muted boolean not null default false;
+create table if not exists ops(user_id text not null, op_id text not null, response jsonb not null, created_at timestamptz not null default now(), primary key(user_id, op_id));

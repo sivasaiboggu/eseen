@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { decorate, trackedByThread } from "../src/content/rows";
 const api = (list: unknown[], userId = "u") => ({ base: "x", userId, fetch: (async () => new Response(JSON.stringify(list), { status: 200 })) as unknown as typeof fetch });
-const msg = (tid: string | undefined, sentAt = 1000, events: unknown[] = [{ at: 1000, classification: "REAL_OPEN", reason: "No automation signal found" }]) =>
-  ({ id: Math.random().toString(36).slice(2), threadId: tid, sentAt, mode: "combined", recipients: [{ id: Math.random().toString(36).slice(2), label: "All recipients (combined)", events }] });
+const msg = (tid: string | undefined, sentAt = 1000, events: unknown[] = [{ at: 1000, classification: "REAL_OPEN", reason: "No automation signal found" }], label?: string) =>
+  ({ id: Math.random().toString(36).slice(2), threadId: tid, sentAt, label, mode: "combined", recipients: [{ id: Math.random().toString(36).slice(2), label: "All recipients (combined)", events }] });
 const doc = (tid: string) => { const d = document.createElement("div"); d.innerHTML = `<table><tr data-legacy-thread-id="${tid}"><td class="a4W">Subject</td></tr></table><div data-thread-id="${tid}"><p>body</p></div>`; return d; };
 describe("row/thread decoration", () => {
   it("badges only rows whose exact thread ID matches a tracked message", async () => {
@@ -71,5 +71,20 @@ describe("account switching", () => {
     expect(await p1).toBe(0); // stale result dropped
     await p2;
     expect(d.querySelector("[data-eseen-uid]")).toBeNull();
+  });
+});
+
+describe("per-send card identification", () => {
+  it("each card shows its own send time and stored subject, never another send's", async () => {
+    const now = Date.now();
+    const d = doc("t-1");
+    const m1 = msg("t-1", now - 3_600_000, [], "Q3 proposal");
+    const m2 = msg("t-1", now - 30_000, [{ at: now - 20_000, classification: "REAL_OPEN", reason: "No automation signal found" }]);
+    await decorate(d, api([m1, m2], "carol"), { showAuto: false, now });
+    const cards = [...d.querySelectorAll("div[data-thread-id] > span")].map((c) => c.shadowRoot!.innerHTML);
+    expect(cards[0]).toContain("just now"); // newest first
+    expect(cards[1]).toContain("1 h ago");
+    expect(cards[1]).toContain("Q3 proposal");
+    expect(cards[0]).not.toContain("Q3 proposal");
   });
 });
