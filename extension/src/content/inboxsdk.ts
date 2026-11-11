@@ -1,6 +1,6 @@
 import * as InboxSDK from "@inboxsdk/core";
 import { removePixel } from "./inject";
-import { prepareSend, type Api } from "./tracking";
+import { markSentAck, prepareSend, type Api } from "./tracking";
 
 /** Primary Gmail integration. Needs a free InboxSDK AppId registered by the project owner (VITE_INBOXSDK_APP_ID). Not tested against live Gmail. */
 export async function startInboxSdk(appId: string, getApi: () => Promise<Api>, getEnabled: () => Promise<boolean>, setEnabled: (v: boolean) => void) {
@@ -8,7 +8,7 @@ export async function startInboxSdk(appId: string, getApi: () => Promise<Api>, g
   sdk.Compose.registerComposeViewHandler((cv) => {
     let on = true; getEnabled().then((v) => (on = v));
     const body = () => cv.getBodyElement();
-    let bypass = false;
+    let bypass = false; let trackedId: string | undefined;
     cv.addButton({
       title: "Eseen: track opens", iconUrl: chrome.runtime.getURL("icons/icon32.png"), orderHint: 1,
       onClick() { on = !on; setEnabled(on); if (!on) removePixel(body()); },
@@ -21,11 +21,15 @@ export async function startInboxSdk(appId: string, getApi: () => Promise<Api>, g
       (async () => {
         const api = await getApi();
         const recips = [...cv.getToRecipients(), ...cv.getCcRecipients(), ...cv.getBccRecipients()].map((c) => c.emailAddress);
-        const res = await prepareSend(body(), api, recips, () => window.confirm("Eseen couldn't set up tracking. Send without tracking?"));
+        const res = await prepareSend(body(), api, recips, () => window.confirm("Eseen couldn't set up tracking. Send without tracking?"), undefined, (id) => { trackedId = id; });
         if (res === "cancel") return;
         bypass = true; cv.send();
       })();
     });
-    cv.on("discard", () => removePixel(body())); // no orphan pixels in discarded drafts
+    cv.on("sent", () => { // Gmail-level confirmation the send completed; registration alone never implies sent
+      const id = trackedId; trackedId = undefined;
+      if (id) void getApi().then((api) => markSentAck(api, id));
+    });
+    cv.on("discard", () => { trackedId = undefined; removePixel(body()); }); // no orphan pixels in discarded drafts
   });
 }

@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { Bot, Clock, Eye, EyeOff, Search, Settings, X, ChevronLeft, Download, Trash2, ExternalLink, Sun, Moon, Monitor, Users } from "lucide-react";
 import "./popup.css";
 
-export type UiStatus = "opened" | "not_opened" | "sent" | "possible";
+export type UiStatus = "opened" | "not_opened" | "sent" | "possible" | "registered";
 export interface Recipient { status: string; label: string; tooltip: string; openCount: number; firstOpenedAt?: number; lastOpenedAt?: number; uaFamily?: string; email?: string; name?: string; threadUrl?: string }
 export interface Row { id: string; label?: string; subject?: string; sentAt: number; mode: string; recipients: Recipient[] }
 type Filter = "ALL" | "OPENED" | "NOT_OPENED" | "AUTO";
@@ -12,7 +12,7 @@ export type Connection = "prototype" | "api" | "offline";
 export interface Prefs { enabled: boolean; notifications: boolean; notifyFirstOpen: boolean; showAuto: boolean; storeSubjects: boolean; theme: Theme }
 export const defaultPrefs: Prefs = { enabled: true, notifications: false, notifyFirstOpen: false, showAuto: true, storeSubjects: false, theme: "system" };
 
-export function mapStatus(s?: string): UiStatus { return s === "OPENED" ? "opened" : s === "POSSIBLY_OPENED" ? "possible" : s === "SENT" ? "sent" : "not_opened"; }
+export function mapStatus(s?: string): UiStatus { return s === "OPENED" ? "opened" : s === "POSSIBLY_OPENED" ? "possible" : s === "SENT" ? "sent" : s === "REGISTERED" ? "registered" : "not_opened"; }
 export function titleFor(row: Row): string { const r = row.recipients[0]; return row.label || row.subject || r?.name || r?.email || "Untitled email"; }
 export function relativeTime(ms: number, now = Date.now()): string { const diff = now - ms; if (diff < 45_000) return "just now"; if (diff < 3_600_000) return new Intl.RelativeTimeFormat(undefined, { numeric: "always" }).format(-Math.round(diff / 60_000), "minute"); if (diff < 86_400_000) return new Intl.RelativeTimeFormat(undefined, { numeric: "always" }).format(-Math.round(diff / 3_600_000), "hour"); const d = new Date(ms), today = new Date(now); const yesterday = new Date(now); yesterday.setDate(today.getDate() - 1); const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(d); if (d.toDateString() === yesterday.toDateString()) return `Yesterday, ${time}`; return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(d); }
 export function exactTime(ms: number): string { return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(ms)); }
@@ -36,7 +36,7 @@ function usePrefs(): [Prefs, (patch: Partial<Prefs>) => void] {
 
 function Mark({ className }: { className?: string }) { return <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" stroke="#4F46E5" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/><path d="m8.5 12 2.5 2.5 5-5" stroke="#047857" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>; }
 function StatusPill({ status }: { status: UiStatus }) { const m = statusMeta[status], I = m.icon; return <span className={`pill ${status}`} title={m.tip} tabIndex={0} aria-label={`${m.label}. ${m.tip}`}><I size={14} aria-hidden="true"/>{m.label}</span>; }
-const statusMeta: Record<UiStatus, { label: string; icon: typeof Eye; tip: string }> = { opened: { label: "Opened", icon: Eye, tip: "The tracking image loaded. This does not prove the email was read." }, not_opened: { label: "Not opened", icon: EyeOff, tip: "No open detected. The recipient may have images blocked." }, sent: { label: "Sent", icon: Clock, tip: "Email sent, no events yet." }, possible: { label: "Auto-loaded", icon: Bot, tip: "This open may have been triggered by Apple Mail Privacy Protection or a security scanner." } };
+const statusMeta: Record<UiStatus, { label: string; icon: typeof Eye; tip: string }> = { opened: { label: "Opened", icon: Eye, tip: "The tracking image loaded. This does not prove the email was read." }, not_opened: { label: "Not opened", icon: EyeOff, tip: "No open detected. The recipient may have images blocked." }, sent: { label: "Sent", icon: Clock, tip: "Send confirmed by Gmail. No events yet." }, possible: { label: "Auto-loaded", icon: Bot, tip: "This open may have been triggered by Apple Mail Privacy Protection or a security scanner." }, registered: { label: "Set up", icon: Clock, tip: "Tracking was set up, but no send was confirmed - the email may not have been sent." } };
 
 function Avatar({ recipients }: { recipients: Recipient[] }) {
   const known = recipients.filter((r) => r.name || r.email);

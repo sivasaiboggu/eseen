@@ -34,6 +34,9 @@ describe("deriveStatus", () => {
   it("only auto -> possibly", () => expect(deriveStatus([e("POSSIBLY_OPENED")]).label).toBe("Possibly opened (auto-loaded)"));
   it("none -> sent or no open detected", () => {
     expect(deriveStatus([], { sentRecently: true }).status).toBe("SENT");
+    expect(deriveStatus([], { sentRecently: true, sendAcked: false }).status).toBe("REGISTERED");
+    expect(deriveStatus([], { sentRecently: false, sendAcked: false }).label).toBe("Set up - send unconfirmed");
+    expect(deriveStatus([{ at: 1, classification: "POSSIBLY_OPENED", reason: "x" }], { sendAcked: false }).status).toBe("POSSIBLY_OPENED");
     expect(deriveStatus([]).tooltip).toMatch(/^No open detected/);
   });
   it("self opens are ignored", () => expect(deriveStatus([e("SELF_OPEN")]).status).toBe("NOT_OPENED_YET"));

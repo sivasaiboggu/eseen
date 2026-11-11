@@ -17,8 +17,9 @@ describe("popup UI", () => {
     expect(relativeTime(now - 3 * 3_600_000, now)).toBe("3 hours ago");
     expect(relativeTime(Date.parse("2026-11-10T16:20:00"), now)).toBe("22 hours ago");
   });
-  it("maps backend status into four honest labels", () => { expect(mapStatus("OPENED")).toBe("opened"); expect(mapStatus("POSSIBLY_OPENED")).toBe("possible"); expect(mapStatus("SENT")).toBe("sent"); expect(mapStatus("NOT_OPENED_YET")).toBe("not_opened"); });
+  it("maps backend status into honest labels", () => { expect(mapStatus("OPENED")).toBe("opened"); expect(mapStatus("POSSIBLY_OPENED")).toBe("possible"); expect(mapStatus("SENT")).toBe("sent"); expect(mapStatus("REGISTERED")).toBe("registered"); expect(mapStatus("NOT_OPENED_YET")).toBe("not_opened"); });
   it("avatar tone is deterministic", () => { expect(avatarTone("a@example.com")).toEqual(avatarTone("a@example.com")); });
+  it("unconfirmed sends never claim Sent", () => { const html = renderToStaticMarkup(<App rows={[{ ...combined, recipients: [{ status: "REGISTERED", label: "Set up - send unconfirmed", tooltip: "t", openCount: 0 }] }]}/>); expect(html).toContain("Set up"); expect(html).not.toContain(">Sent<"); });
   it("renders summary, honest pill and no oversized claim", () => { const html = renderToStaticMarkup(<App rows={[base]}/>); expect(html).toContain("Tracked today"); expect(html).toContain("Opened"); expect(html).toContain("Not opened"); expect(html).toContain("does not prove"); expect(html).not.toContain("(no label)"); });
   const combined: Row = { id: "c", sentAt: Date.parse("2026-11-11T14:14:00"), mode: "combined", recipients: [{ status: "OPENED", label: "Opened", tooltip: "x", openCount: 2, firstOpenedAt: Date.parse("2026-11-11T14:20:00") }] };
   it("combined rows show a neutral group avatar, never initials from a status label", () => { const html = renderToStaticMarkup(<App rows={[combined]}/>); expect(html).toContain("All recipients"); expect(html).not.toContain(">OP<"); expect(html).toContain("avatar neutral"); });

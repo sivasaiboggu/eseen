@@ -28,6 +28,29 @@ describe("pixel endpoint", () => {
     expect((await get()).recipients[0].openCount).toBe(2);
   });
 });
+describe("send acknowledgement", () => {
+  it("registration alone stays unconfirmed; ack promotes to SENT; duplicate ack keeps the first time", async () => {
+    const { app, body, get, clock } = await setup();
+    expect((await get()).recipients[0].status).toBe("REGISTERED");
+    expect((await get()).recipients[0].label).toBe("Set up - send unconfirmed");
+    const ack = await app.inject({ method: "POST", url: `/v1/messages/${body.id}/sent-ack`, headers: H });
+    expect(ack.statusCode).toBe(204);
+    expect((await get()).recipients[0].status).toBe("SENT");
+    clock.adv(5000);
+    await app.inject({ method: "POST", url: `/v1/messages/${body.id}/sent-ack`, headers: H });
+    expect((await get()).recipients[0].status).toBe("SENT");
+  });
+  it("rejects acks for unknown or foreign messages", async () => {
+    const { app, body } = await setup();
+    expect((await app.inject({ method: "POST", url: `/v1/messages/${body.id}/sent-ack`, headers: { authorization: "Bearer other" } })).statusCode).toBe(404);
+    expect((await app.inject({ method: "POST", url: "/v1/messages/nope/sent-ack", headers: H })).statusCode).toBe(404);
+  });
+  it("a pixel load never promotes an unconfirmed registration to SENT", async () => {
+    const { hit, clock, get } = await setup(); clock.adv(5000); await hit("Chrome"); await hit("Chrome");
+    const m = await get();
+    expect(m.recipients[0].status).not.toBe("SENT");
+  });
+});
 describe("status flow", () => {
   it("combined mode by default, with the limitation stated", async () => {
     const { body } = await setup({ recipients: [{ email: "a@x.com" }, { email: "b@x.com" }] });
@@ -41,9 +64,11 @@ describe("status flow", () => {
     const r = (await get()).recipients[0]; expect(r.status).toBe("OPENED"); expect(r.events).toHaveLength(2); // flagged event kept
   });
   it("explicit self marker is ignored", async () => {
-    const { hit, clock, get } = await setup(); clock.adv(100000);
+    const { app, body, hit, clock, get } = await setup(); clock.adv(100000);
     await hit("Chrome", { "x-eseen-self": "1" });
-    expect((await get()).recipients[0].status).toBe("NOT_OPENED_YET");
+    expect((await get()).recipients[0].status).toBe("REGISTERED"); // no open recorded; send also unconfirmed
+    await app.inject({ method: "POST", url: `/v1/messages/${body.id}/sent-ack`, headers: H });
+    expect((await get()).recipients[0].status).toBe("NOT_OPENED_YET"); // confirmed send + ignored self load
   });
   it("self-view timing guess stays visible as possibly opened", async () => {
     const { app, hit, clock, get, body } = await setup(); clock.adv(100000);

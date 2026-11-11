@@ -61,7 +61,7 @@ export function buildApp(o: Opts) {
 
   const view = (m: Msg, showAuto: boolean) => ({ id: m.id, label: m.subjectEnc, sentAt: m.sentAt, mode: m.mode, recipients: m.recipients.map((r) => {
     const evs = store.eventsFor(r.id).filter((e) => e.classification !== "SELF_OPEN");
-    return { id: r.id, label: r.label, ...deriveStatus(evs, { sentRecently: now() - m.sentAt < 60000 }),
+    return { id: r.id, label: r.label, ...deriveStatus(evs, { sentRecently: now() - m.sentAt < 60000, sendAcked: m.sentAckedAt !== undefined }),
       events: evs.filter((e) => showAuto || e.classification === "REAL_OPEN").map((e) => ({ at: e.at, classification: e.classification, reason: e.reason, uaFamily: e.uaFamily })) };
   }) });
   app.get("/v1/messages", async (req, rep) => {
@@ -80,6 +80,13 @@ export function buildApp(o: Opts) {
     const userId = auth(req.headers); if (!userId) return unauth(rep);
     const m = store.msgs.get(req.params.id); if (!m || m.userId !== userId) return rep.code(404).send({ error: "not found" });
     m.selfViewUntil = now() + rules.selfViewWindowSeconds * 1000; return rep.code(204).send();
+  });
+  /** Extension signal: the send was confirmed by a Gmail-level signal (InboxSDK sent event). Idempotent; first ack wins. Registration alone never implies sent. */
+  app.post<{ Params: { id: string } }>("/v1/messages/:id/sent-ack", async (req, rep) => {
+    const userId = auth(req.headers); if (!userId) return unauth(rep);
+    const m = store.msgs.get(req.params.id); if (!m || m.userId !== userId) return rep.code(404).send({ error: "not found" });
+    if (m.sentAckedAt === undefined) m.sentAckedAt = now();
+    return rep.code(204).send();
   });
   app.delete("/v1/me", async (req, rep) => { const u = auth(req.headers); if (!u) return unauth(rep); store.deleteUser(u); return rep.code(204).send(); });
   app.get("/v1/export", async (req, rep) => { const u = auth(req.headers); if (!u) return unauth(rep); await flush();

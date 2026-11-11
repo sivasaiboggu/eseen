@@ -1,6 +1,6 @@
 import type { StoredOpen } from "@eseen/shared";
 export interface Recipient { id: string; messageId: string; emailHash?: string; label?: string; }
-export interface Msg { id: string; userId: string; subjectEnc?: string; sentAt: number; mode: "combined" | "per_recipient"; recipients: Recipient[]; selfViewUntil?: number; muted?: boolean; }
+export interface Msg { id: string; userId: string; subjectEnc?: string; sentAt: number; mode: "combined" | "per_recipient"; recipients: Recipient[]; selfViewUntil?: number; sentAckedAt?: number; muted?: boolean; }
 export interface EventRow extends StoredOpen { id: string; recipientId: string; country?: string; suspectedBot: boolean; }
 /** Storage seam. MemoryStore for dev/tests; Postgres schema lives in migrations/. Raw IPs are never stored. */
 export class MemoryStore {
