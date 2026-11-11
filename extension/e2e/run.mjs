@@ -15,6 +15,7 @@ try {
     try { const resp = await route.fetch({ url: "http://localhost:8787" + u.pathname.replace(/^\/api/, "") + u.search }); await route.fulfill({ response: resp }); }
     catch { await route.fulfill({ status: 502, body: "backend down" }); } // lets the popup render its own error state when the backend is gone
   });
+  await ctx.route("https://mail.google.com/api/v1/events", (r) => r.abort()); // registered last so it wins: route.fetch can't proxy a never-ending stream; the popup falls back to polling (exercised below), and the stream itself is covered by the backend test
   const page = await ctx.newPage(); page.on("console", (m) => console.log("page:", m.text())); page.on("pageerror", (e) => console.log("pageerror:", e.message)); page.on("dialog", (d) => { console.log("dialog:", d.message()); void d.accept(); });
   await page.goto("https://mail.google.com/mock");
   await page.waitForSelector("#send"); await page.waitForTimeout(1500);
@@ -47,6 +48,13 @@ try {
   const pop = await ctx.newPage(); await pop.setViewportSize({ width: 380, height: 560 }); pop.on("console", (m) => console.log("popup-console:", m.text())); pop.on("pageerror", (e) => console.log("popup-pageerror:", e.message)); await pop.goto(`chrome-extension://${id}/src/popup/index.html`); await pop.waitForSelector(".email-row", { timeout: 15000 }); 
   assert.match(await pop.textContent(".email-row"), /Opened/);
   assert.match(await pop.textContent(".email-row"), /All recipients/, "combined row names no fake identity");
+  await new Promise((r) => setTimeout(r, 4500)); await get("Mozilla/5.0 Chrome/150"); await new Promise((r) => setTimeout(r, 300)); // second real-looking load, past the dedupe window
+  console.log("after second hit:", (await list()).recipients[0].openCount, "opens");
+  await pop.click(".email-row"); // expand: the count lives in the timeline
+  await pop.waitForTimeout(8000);
+  console.log("POPUP BODY:", (await pop.textContent("body"))?.slice(0, 300));
+  await pop.waitForFunction(() => document.body.textContent?.includes("2 opens"), undefined, { timeout: 15000 }); console.log("popup live-updated after a new open");
+  await pop.click(".email-row"); await pop.waitForTimeout(250); // collapse again
   assert.ok(await pop.$(".avatar.neutral"), "combined rows use a neutral group avatar");
   assert.match(await pop.textContent(".app-header"), /Local API/, "connection labelled honestly, never a bare green dot");
   assert.ok(await pop.evaluate(() => document.fonts.check('12px "Inter Variable"')), "Inter is bundled, not a system fallback");

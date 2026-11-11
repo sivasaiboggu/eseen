@@ -116,12 +116,29 @@ function Root() {
   const [rows, setRows] = useState<Row[] | null>(null), [error, setError] = useState(false), [attempt, setAttempt] = useState(0);
   useEffect(() => { let active = true; setError(false);
     chrome.storage.sync.get({ userId: "dev-user", showAuto: true }).then(async (s) => {
-      try { const r = await fetch(`${API}/v1/messages?limit=25&showAuto=${s.showAuto}`, { headers: { authorization: `Bearer ${s.userId}` } }); if (!r.ok) throw Error("Unavailable"); const data = await r.json(); if (!Array.isArray(data)) throw Error("Invalid"); if (active) setRows(data); }
+      try { const r = await fetch(`${API}/v1/messages?limit=25&showAuto=${s.showAuto}`, { headers: { authorization: `Bearer ${s.userId}` }, cache: "no-store" }); if (!r.ok) throw Error("Unavailable"); const data = await r.json(); if (!Array.isArray(data)) throw Error("Invalid"); if (active) setRows(data); }
       catch { if (active) setError(true); }
     });
     return () => { active = false; };
   }, [attempt]);
   const withAuth = async (fn: (userId: string) => Promise<void>) => { const s = await chrome.storage.sync.get({ userId: "dev-user" }); try { await fn(s.userId); } catch { setError(true); } };
+  useEffect(() => { // live updates: consume the backend event stream and refetch on events; falls back to polling where a stream can't stay open (dev proxies, strict networks)
+    let stop = false, timer: number | undefined;
+    const refreshSoon = (ms: number) => { clearTimeout(timer); timer = window.setTimeout(() => { if (!stop) setAttempt((a) => a + 1); }, ms); };
+    (async () => {
+      const s = await chrome.storage.sync.get({ userId: "dev-user" });
+      while (!stop) {
+        let streamed = false;
+        try {
+          const r = await fetch(`${API}/v1/events`, { headers: { authorization: `Bearer ${s.userId}` } });
+          if (r.ok && r.body) { streamed = true; const reader = r.body.getReader(); while (!stop) { const { done } = await reader.read(); if (done) break; refreshSoon(250); } }
+        } catch { /* fall through to polling */ }
+        if (!streamed) refreshSoon(5000);
+        if (!stop) await new Promise((res) => setTimeout(res, 5000));
+      }
+    })();
+    return () => { stop = true; clearTimeout(timer); };
+  }, []);
   if (error) return <main><ErrorState onRetry={() => setAttempt((a) => a + 1)}/></main>;
   if (!rows) return <main><Header connection="offline" onSettings={() => {}}/><SkeletonRows/></main>;
   return <App rows={rows} connection="api"
