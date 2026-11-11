@@ -104,6 +104,20 @@ try {
   await pop.emulateMedia({ colorScheme: "dark" });
   await pop.screenshot({ path: path.join(shots, "popup-dark.png") });
   await pop.emulateMedia({ colorScheme: "light" });
+  // row badge + thread card: a Gmail-level sent-ack carries the exact thread ID, then the page decorations attach
+  const tracked = (await (await fetch("http://localhost:8787/v1/messages", { headers: { authorization: "Bearer dev-user" } })).json())[0];
+  const ack = await fetch(`http://localhost:8787/v1/messages/${tracked.id}/sent-ack`, { method: "POST", headers: { authorization: "Bearer dev-user", "content-type": "application/json" }, body: JSON.stringify({ threadId: "t-1" }) });
+  assert.equal(ack.status, 204);
+  await page.evaluate(() => window.__sent = "");
+  await page.reload(); await page.waitForSelector("#send"); await page.waitForTimeout(2500);
+  const deco = await page.evaluate(() => ({
+    badge: !!document.querySelector("tr[data-legacy-thread-id='t-1'] td.a4W span")?.shadowRoot,
+    otherRowClean: !document.querySelector("tr[data-legacy-thread-id='t-other'] td.a4W span"),
+    card: !!document.querySelector("div[data-thread-id='t-1'] > span")?.shadowRoot,
+  }));
+  assert.ok(deco.badge, "badge attached to the matching row"); assert.ok(deco.otherRowClean, "no badge on a non-matching row"); assert.ok(deco.card, "card attached to the matching thread");
+  console.log("row badge + thread card attached by exact thread ID");
+  await page.screenshot({ path: path.join(shots, "mock-thread.png") });
   // unarmed marker: self-view POST blocked, the compose-side load must stay visibly ambiguous - never a silent Opened
   await ctx.route("https://mail.google.com/api/v1/messages/*/self-view", (r) => r.abort()); // registered last: wins over the proxy route
   await page.evaluate(() => { document.getElementById("body").innerHTML = "<p>second</p>"; });

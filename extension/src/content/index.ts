@@ -2,11 +2,12 @@ import { selectors } from "./selectors";
 import { removePixel, readRecipients } from "./inject";
 import { prepareSend } from "./tracking";
 import { startInboxSdk } from "./inboxsdk";
+import { decorate } from "./rows";
 
 const API = (import.meta.env.VITE_ESEEN_API as string | undefined) ?? "http://localhost:8787"; // dev only; production URL set at build/deploy, never silently
 const wired = new WeakSet<Element>(), bypass = new WeakSet<Element>();
-type S = { enabled: boolean; userId: string; storeSubjects?: boolean };
-const settings = () => chrome.storage.sync.get({ enabled: true, userId: "dev-user", storeSubjects: false }) as Promise<S>;
+type S = { enabled: boolean; userId: string; storeSubjects?: boolean; showAutoLoaded?: boolean };
+const settings = () => chrome.storage.sync.get({ enabled: true, userId: "dev-user", storeSubjects: false, showAutoLoaded: false }) as Promise<S>;
 
 function banner(text: string) { // fail safely: small notice, never break Gmail
   if (document.getElementById("eseen-banner")) return;
@@ -52,7 +53,10 @@ if (APP_ID) {
     .catch(() => banner("Eseen needs an update"));
 } else {
 let t: number | undefined;
-const scan = () => { try { document.querySelectorAll(selectors.composeRoot).forEach(wire); } catch { banner("Eseen needs an update"); } };
+const scan = () => { try {
+  document.querySelectorAll(selectors.composeRoot).forEach(wire);
+  void settings().then((s) => decorate(document, { base: API, userId: s.userId }, { showAuto: s.showAutoLoaded ?? false })).catch(() => { /* badges are cosmetic; the next scan retries */ });
+} catch { banner("Eseen needs an update"); } };
 scan(); // initial pass: a static compose (or one opened before idle) has no mutation to trigger the observer
 new MutationObserver(() => { clearTimeout(t); t = window.setTimeout(scan, 200); }).observe(document.body, { childList: true, subtree: true });
 }

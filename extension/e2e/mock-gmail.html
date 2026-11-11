@@ -2,4 +2,6 @@
 <div role="dialog" id="c1"><input name="to" value="priya@example.com"><input name="cc" value="sam@example.com">
 <div aria-label="Message Body" contenteditable="true" id="body"><p>Proposal v2 attached.</p></div>
 <div id="bar"><div role="button" data-tooltip="Send (Ctrl-Enter)" id="send">Send</div></div></div>
+<table><tr data-legacy-thread-id="t-1"><td class="a4W">Proposal v2</td></tr><tr data-legacy-thread-id="t-other"><td class="a4W">Unrelated</td></tr></table>
+<div data-thread-id="t-1"><p>sent thread body</p></div>
 <script>document.getElementById('send').addEventListener('click',()=>{window.__sent=document.getElementById('body').innerHTML;});</script></body></html>
