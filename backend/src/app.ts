@@ -17,6 +17,26 @@ export function buildApp(o: Opts) {
   const now = o.now ?? Date.now;
   // DEV AUTH ONLY: bearer token = user id. Replace with Google ID-token verification before any real use.
   const auth = o.authUser ?? ((h) => { const a = String(h.authorization ?? ""); return a.startsWith("Bearer ") ? a.slice(7) : null; });
+  // CORS: only the Gmail origin (extension content script runs with the page's origin). PNA header for localhost dev.
+  app.addHook("onRequest", async (req, rep) => {
+    const o = String(req.headers.origin ?? "");
+    // Allowed: the Gmail origin (content scripts run with the page's origin) and our own extension pages (popup/dashboard, dev API).
+    if (o === "https://mail.google.com" || o.startsWith("chrome-extension://")) {
+      rep.header("Access-Control-Allow-Origin", o).header("Vary", "Origin").header("Access-Control-Allow-Headers", "authorization, content-type")
+        .header("Access-Control-Allow-Methods", "GET, POST, DELETE").header("Access-Control-Allow-Private-Network", "true");
+      if (req.method === "OPTIONS") return rep.code(204).send();
+    }
+  });
+  // CORS: only the Gmail origin (extension content script runs with the page's origin). PNA header for localhost dev.
+  app.addHook("onRequest", async (req, rep) => {
+    const o = String(req.headers.origin ?? "");
+    // Allowed: the Gmail origin (content scripts run with the page's origin) and our own extension pages (popup/dashboard, dev API).
+    if (o === "https://mail.google.com" || o.startsWith("chrome-extension://")) {
+      rep.header("Access-Control-Allow-Origin", o).header("Vary", "Origin").header("Access-Control-Allow-Headers", "authorization, content-type")
+        .header("Access-Control-Allow-Methods", "GET, POST, DELETE").header("Access-Control-Allow-Private-Network", "true");
+      if (req.method === "OPTIONS") return rep.code(204).send();
+    }
+  });
   const unauth = (rep: any) => rep.code(401).send({ error: "unauthorized" });
 
   const ipHits = new Map<string, { n: number; t: number }>(), tokHits = new Map<string, { n: number; t: number }>();

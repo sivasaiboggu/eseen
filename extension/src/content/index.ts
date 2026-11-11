@@ -3,7 +3,7 @@ import { removePixel, readRecipients } from "./inject";
 import { prepareSend } from "./tracking";
 import { startInboxSdk } from "./inboxsdk";
 
-const API = "http://localhost:8787"; // dev only; production URL set at build/deploy, never silently
+const API = (import.meta.env.VITE_ESEEN_API as string | undefined) ?? "http://localhost:8787"; // dev only; production URL set at build/deploy, never silently
 const wired = new WeakSet<Element>(), bypass = new WeakSet<Element>();
 type S = { enabled: boolean; userId: string };
 const settings = () => chrome.storage.sync.get({ enabled: true, userId: "dev-user" }) as Promise<S>;
@@ -51,5 +51,7 @@ if (APP_ID) {
     .catch(() => banner("Eseen needs an update"));
 } else {
 let t: number | undefined;
-new MutationObserver(() => { clearTimeout(t); t = window.setTimeout(() => { try { document.querySelectorAll(selectors.composeRoot).forEach(wire); } catch { banner("Eseen needs an update"); } }, 200); }).observe(document.body, { childList: true, subtree: true });
+const scan = () => { try { document.querySelectorAll(selectors.composeRoot).forEach(wire); } catch { banner("Eseen needs an update"); } };
+scan(); // initial pass: a static compose (or one opened before idle) has no mutation to trigger the observer
+new MutationObserver(() => { clearTimeout(t); t = window.setTimeout(scan, 200); }).observe(document.body, { childList: true, subtree: true });
 }

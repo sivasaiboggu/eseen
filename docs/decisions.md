@@ -11,3 +11,6 @@ Latest user spec (2026-11-11 19:21 IST) supersedes the first: **v1 is open track
 8. **Dev auth** is a bearer user id. Google ID-token verification is not wired.
 9. Nothing deployed; no real emails touched. No legal, GDPR or Chrome Web Store compliance is claimed, only designed toward.
 10. **Gmail-proxy opens:** after the first 60s a Google-proxy load is labelled REAL_OPEN internally, but timing cannot prove a person opened it. The reason text says so and the status tooltip says it is not proof.
+| 2026-11-11 | E2E via mock Gmail served at mail.google.com URL through Playwright route interception, with a /api loopback proxy | Chrome blocks https page -> localhost fetches (Private Network Access); branded Chrome 156 ignores --load-extension, so E2E uses Playwright's bundled Chromium; real Gmail testing still needs the narrow approved plan |
+| 2026-11-11 | Content script does an initial compose scan plus MutationObserver | Static/already-open compose has no mutation to trigger the observer; found by the first E2E failure |
+| 2026-11-11 | Backend CORS allows chrome-extension:// origins and localhost:8787 host permission in the dev manifest | Extension popup fetches the dev API cross-origin; production deploy replaces the dev URL and permissions explicitly |
