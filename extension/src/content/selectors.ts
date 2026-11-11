@@ -4,5 +4,6 @@ export const selectors = {
   sendButton: 'div[role="button"][data-tooltip^="Send"], div[role="button"][aria-label^="Send"]',
   composeRoot: 'div[role="dialog"], form.bAs',
   recipientChips: 'input[name="to"], input[name="cc"], input[name="bcc"]',
+  subjectInput: 'input[name="subjectbox"]',
 };
 export type Selectors = typeof selectors;

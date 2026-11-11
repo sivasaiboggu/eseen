@@ -10,8 +10,8 @@ try {
   await ctx.route("https://mail.google.com/**", (r) => r.fulfill({ contentType: "text/html", body: html }));
   await ctx.route("https://mail.google.com/api/**", async (route) => { // loopback proxy: the page never touches a private address space
     const u = new URL(route.request().url());
-    const resp = await route.fetch({ url: "http://localhost:8787" + u.pathname.replace(/^\/api/, "") + u.search });
-    await route.fulfill({ response: resp });
+    try { const resp = await route.fetch({ url: "http://localhost:8787" + u.pathname.replace(/^\/api/, "") + u.search }); await route.fulfill({ response: resp }); }
+    catch { await route.fulfill({ status: 502, body: "backend down" }); } // lets the popup render its own error state when the backend is gone
   });
   await ctx.route("https://mail.google.com/api/p/**", (r) => r.abort()); // the mock page must not load the pixel itself; the e2e simulates opens via direct fetches
   const page = await ctx.newPage(); page.on("console", (m) => console.log("page:", m.text())); page.on("pageerror", (e) => console.log("pageerror:", e.message)); page.on("dialog", (d) => { console.log("dialog:", d.message()); void d.accept(); });
@@ -35,12 +35,54 @@ try {
   // popup
   const sw = ctx.serviceWorkers()[0] ?? await ctx.waitForEvent("serviceworker"); const id = sw.url().split("/")[2];
   const pop = await ctx.newPage(); await pop.setViewportSize({ width: 380, height: 560 }); pop.on("console", (m) => console.log("popup-console:", m.text())); pop.on("pageerror", (e) => console.log("popup-pageerror:", e.message)); await pop.goto(`chrome-extension://${id}/src/popup/index.html`); await pop.waitForSelector(".email-row", { timeout: 15000 }); 
-  assert.match(await pop.textContent(".email-row"), /Opened/); await pop.screenshot({ path: path.join(shots, "popup.png") });
+  assert.match(await pop.textContent(".email-row"), /Opened/);
+  assert.match(await pop.textContent(".email-row"), /All recipients/, "combined row names no fake identity");
+  assert.ok(await pop.$(".avatar.neutral"), "combined rows use a neutral group avatar");
+  assert.match(await pop.textContent(".app-header"), /Local API/, "connection labelled honestly, never a bare green dot");
+  assert.ok(await pop.evaluate(() => document.fonts.check('12px "Inter Variable"')), "Inter is bundled, not a system fallback");
+  await pop.screenshot({ path: path.join(shots, "popup.png") });
+  // keyboard: Tab reaches the row, Enter expands, Escape collapses
+  for (let i = 0; i < 15; i++) { await pop.keyboard.press("Tab"); if (await pop.evaluate(() => document.activeElement?.classList.contains("email-row"))) break; }
+  assert.ok(await pop.evaluate(() => document.activeElement?.classList.contains("email-row")), "row reachable by keyboard");
+  await pop.keyboard.press("Enter"); await pop.waitForTimeout(250);
+  assert.ok(await pop.$(".timeline.open"), "Enter expands the timeline");
+  await pop.screenshot({ path: path.join(shots, "popup-focus.png") });
+  await pop.keyboard.press("Escape"); await pop.waitForTimeout(250);
+  assert.ok(!(await pop.$(".timeline.open")), "Escape collapses the timeline");
+  assert.equal(await pop.$eval(".timeline", (el) => getComputedStyle(el).paddingBottom), "0px", "collapsed timeline has no visible bar");
+  // mouse expand for the layout screenshot
+  await pop.click(".email-row"); await pop.waitForTimeout(250); await pop.screenshot({ path: path.join(shots, "popup-expanded.png") });
+  assert.equal(await pop.$eval(".list-scroll ul", (el) => getComputedStyle(el).paddingLeft), "0px", "rows sit at the 16px inset, no stray list indent");
+  await pop.click(".email-row");
+  // settings: wired controls persist, unavailable ones are visibly disabled
+  await pop.click(".icon-btn[aria-label='Settings']"); await pop.waitForTimeout(250);
+  await pop.screenshot({ path: path.join(shots, "popup-settings.png") });
+  assert.match(await pop.textContent(".settings-panel"), /Not available yet/, "unavailable settings carry a visible reason");
+  assert.ok(await pop.$(".switch[aria-label='Desktop notifications'][disabled]"), "notification switch disabled until it ships");
+  await pop.click(".switch[aria-label='Show auto-loaded opens']"); await pop.waitForTimeout(150);
+  assert.equal(await pop.evaluate(() => chrome.storage.sync.get({ showAuto: true }).then((s) => s.showAuto)), false, "showAuto persisted off");
+  await pop.click(".switch[aria-label='Show auto-loaded opens']"); await pop.waitForTimeout(150);
+  assert.equal(await pop.evaluate(() => chrome.storage.sync.get({ showAuto: true }).then((s) => s.showAuto)), true, "showAuto persisted back on");
+  await pop.click(".switch[aria-label='Tracking on by default']"); await pop.waitForTimeout(150);
+  assert.equal(await pop.evaluate(() => chrome.storage.sync.get({ enabled: true }).then((s) => s.enabled)), false, "tracking default persisted off");
+  await pop.click(".switch[aria-label='Tracking on by default']"); await pop.waitForTimeout(150);
+  await pop.click(".icon-btn[aria-label='Back']"); await pop.waitForTimeout(250);
+  // reduced motion: no transitions
+  await pop.emulateMedia({ reducedMotion: "reduce" });
+  assert.equal(await pop.$eval(".search", (el) => getComputedStyle(el).transitionDuration), "0s", "reduced motion disables transitions");
+  await pop.screenshot({ path: path.join(shots, "popup-reduced-motion.png") });
+  await pop.emulateMedia({ reducedMotion: "no-preference" });
+  // zoom: real page scale factor when the browser allows it
+  try { const cdp = await pop.context().newCDPSession(pop); await cdp.send("Emulation.setPageScaleFactor", { pageScaleFactor: 1.5 }); await pop.waitForTimeout(200); await pop.screenshot({ path: path.join(shots, "popup-zoom150.png") }); await cdp.send("Emulation.setPageScaleFactor", { pageScaleFactor: 1 }); console.log("zoom: CDP 150% page scale"); }
+  catch { await pop.setViewportSize({ width: 570, height: 840 }); await pop.screenshot({ path: path.join(shots, "popup-zoom150.png") }); await pop.setViewportSize({ width: 380, height: 560 }); console.log("zoom: CDP unavailable, used 150% viewport proxy"); }
   await pop.emulateMedia({ colorScheme: "dark" });
   await pop.screenshot({ path: path.join(shots, "popup-dark.png") });
   await pop.emulateMedia({ colorScheme: "light" });
   await fetch("http://localhost:8787/v1/me", { method: "DELETE", headers: { authorization: "Bearer dev-user" } });
   await pop.reload(); await pop.getByText("Nothing tracked yet").waitFor();
   await pop.screenshot({ path: path.join(shots, "popup-empty.png") });
+  try { process.kill(-be.pid); } catch { be.kill(); }
+  await pop.reload(); await pop.getByText("Can't reach your tracking service").waitFor({ timeout: 15000 });
+  await pop.screenshot({ path: path.join(shots, "popup-error.png") });
   console.log("E2E PASS");
 } finally { await ctx.close(); try { process.kill(-be.pid); } catch { be.kill(); } }

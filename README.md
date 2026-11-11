@@ -2,7 +2,9 @@
 Gmail open tracker (Chrome MV3 + Fastify backend). v1 is open tracking only.
 
 ## Status
-Phase 1 backend/classifier and Phase 2 compose prototype are implemented. Phase 3 has reusable Shadow DOM badge/thread-card components and a basic popup. **The badge/card components are not yet connected to live Gmail rows/threads.** The compose-to-pixel-to-popup flow passes a mock-page Playwright test. 43 unit tests pass. Neither InboxSDK nor the fallback has been tested against real Gmail. This is an interim source snapshot, not a finished extension or production service.
+Phase 1 backend/classifier and Phase 2 compose prototype are implemented. Phase 3 has reusable Shadow DOM badge/thread-card components and a redesigned popup. **The badge/card components are not yet connected to live Gmail rows/threads.** The compose-to-pixel-to-popup flow passes a mock-page Playwright test. 62 unit tests pass. Neither InboxSDK nor the fallback has been tested against real Gmail. This is an interim source snapshot, not a finished extension or production service.
+
+Popup honesty guarantees (mock-E2E-verified): combined emails show a neutral group avatar and "All recipients" - no invented identity; the connection indicator only ever says "Demo", "Local API" (amber - reachable, not authenticated) or "Offline", never a bare green "live" claim; settings that work (tracking default, auto-open visibility, subject storage, theme) persist to chrome.storage.sync, while notifications are visibly disabled as "Not available yet" and data export/delete are disabled unless the local API is connected; there is no fake dashboard link. The popup bundles the Inter font (woff2) instead of relying on a system fallback, honours prefers-reduced-motion, and keeps WCAG AA contrast pairs under unit test.
 
 Not implemented yet: PostgreSQL adapter, verified Google identity, live SSE, notifications, offline queue, dashboard, onboarding, and final privacy/store documentation. The server currently uses in-memory storage (lost on restart) and development bearer-user-ID authentication. **Do not expose it publicly or use it with real mail.**
 
