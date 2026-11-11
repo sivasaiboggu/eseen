@@ -8,7 +8,7 @@ import { newId, sign, verify } from "./token.js";
 // 43-byte transparent GIF
 export const GIF = Buffer.from("R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==", "base64");
 const NO_CACHE = { "Content-Type": "image/gif", "Cache-Control": "no-store, no-cache, must-revalidate, private, max-age=0", Pragma: "no-cache", Expires: "0" };
-export interface Opts { secrets: string[]; baseUrl: string; store?: Store; now?: () => number; authUser?: (h: Record<string, unknown>) => string | null;
+export interface Opts { secrets: string[]; baseUrl: string; store?: Store; now?: () => number; authUser?: (h: Record<string, unknown>) => string | null | Promise<string | null>;
   /** Maps a raw request IP to coarse flags using rules.ipRanges. Raw IP never leaves this call. */ ipClass?: (ip: string) => { apple?: boolean; scanner?: boolean; datacenter?: boolean }; }
 
 export function buildApp(o: Opts) {
@@ -48,7 +48,7 @@ export function buildApp(o: Opts) {
     storeRecipientNames: z.boolean().default(false),
   });
   app.post("/v1/messages", async (req, rep) => {
-    const userId = auth(req.headers); if (!userId) return unauth(rep);
+    const userId = await auth(req.headers); if (!userId) return unauth(rep);
     const p = create.safeParse(req.body); if (!p.success) return rep.code(400).send({ error: "invalid" });
     if (p.data.opId) { const hit = await store.getOp(`${userId}:${p.data.opId}`); if (hit) return hit; } // committed earlier; response lost in transit
     const salt = await store.getSalt(userId);
@@ -69,33 +69,33 @@ export function buildApp(o: Opts) {
       events: evs.filter((e) => showAuto || e.classification === "REAL_OPEN").map((e) => ({ at: e.at, classification: e.classification, reason: e.reason, uaFamily: e.uaFamily })) };
   })) });
   app.get("/v1/messages", async (req, rep) => {
-    const userId = auth(req.headers); if (!userId) return unauth(rep);
+    const userId = await auth(req.headers); if (!userId) return unauth(rep);
     const q = z.object({ limit: z.coerce.number().int().min(1).max(100).default(25), showAuto: z.coerce.boolean().default(true) }).parse(req.query);
     await flush();
     return Promise.all((await store.listMessages(userId, q.limit)).map((m) => view(m, q.showAuto)));
   });
   app.get<{ Params: { id: string } }>("/v1/messages/:id", async (req, rep) => {
-    const userId = auth(req.headers); if (!userId) return unauth(rep);
+    const userId = await auth(req.headers); if (!userId) return unauth(rep);
     const m = await store.getMessage(req.params.id); if (!m || m.userId !== userId) return rep.code(404).send({ error: "not found" });
     await flush(); return view(m, true);
   });
   /** Extension signal: sender is viewing their own sent thread. The next first load within the window stays POSSIBLY_OPENED, an unverified timing hint. */
   app.post<{ Params: { id: string } }>("/v1/messages/:id/self-view", async (req, rep) => {
-    const userId = auth(req.headers); if (!userId) return unauth(rep);
+    const userId = await auth(req.headers); if (!userId) return unauth(rep);
     const m = await store.getMessage(req.params.id); if (!m || m.userId !== userId) return rep.code(404).send({ error: "not found" });
     await store.setSelfViewUntil(req.params.id, now() + rules.selfViewWindowSeconds * 1000); return rep.code(204).send();
   });
   /** Extension signal: the send was confirmed by a Gmail-level signal (InboxSDK sent event). Idempotent; first ack wins. Registration alone never implies sent. */
   app.post<{ Params: { id: string } }>("/v1/messages/:id/sent-ack", async (req, rep) => {
-    const userId = auth(req.headers); if (!userId) return unauth(rep);
+    const userId = await auth(req.headers); if (!userId) return unauth(rep);
     const m = await store.getMessage(req.params.id); if (!m || m.userId !== userId) return rep.code(404).send({ error: "not found" });
     const p = z.object({ threadId: z.string().max(200).optional() }).partial().safeParse(req.body ?? {});
     if (!p.success) return rep.code(400).send({ error: "invalid" });
     await store.ackSent(req.params.id, now(), p.data.threadId); // first ack wins, id and thread alike
     return rep.code(204).send();
   });
-  app.delete("/v1/me", async (req, rep) => { const u = auth(req.headers); if (!u) return unauth(rep); await store.deleteUser(u); return rep.code(204).send(); });
-  app.get("/v1/export", async (req, rep) => { const u = auth(req.headers); if (!u) return unauth(rep); await flush();
+  app.delete("/v1/me", async (req, rep) => { const u = await auth(req.headers); if (!u) return unauth(rep); await store.deleteUser(u); return rep.code(204).send(); });
+  app.get("/v1/export", async (req, rep) => { const u = await auth(req.headers); if (!u) return unauth(rep); await flush();
     return Promise.all((await store.listMessages(u, 1000)).map((m) => view(m, true))); });
   app.post("/v1/optout", async (req, rep) => {
     const p = z.object({ token: z.string().max(200) }).safeParse(req.body); if (!p.success) return rep.code(400).send({ error: "invalid" });
@@ -106,8 +106,8 @@ export function buildApp(o: Opts) {
   // live event stream: one fan-out per user, fed by logged open events
   const subs = new Map<string, Set<(s: string) => void>>();
   const broadcast = (userId: string, payload: unknown) => { const set = subs.get(userId); if (!set) return; const s = `data: ${JSON.stringify(payload)}\n\n`; for (const w of set) { try { w(s); } catch { /* dropped */ } } };
-  app.get("/v1/events", (req, rep) => {
-    const userId = auth(req.headers); if (!userId) return unauth(rep);
+  app.get("/v1/events", async (req, rep) => {
+    const userId = await auth(req.headers); if (!userId) return unauth(rep);
     const o = String(req.headers.origin ?? "");
     rep.raw.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive", ...(o ? { "access-control-allow-origin": o, vary: "Origin", "access-control-allow-private-network": "true" } : {}) });
     const set = subs.get(userId) ?? new Set(); subs.set(userId, set);

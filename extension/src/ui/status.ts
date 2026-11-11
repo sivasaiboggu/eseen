@@ -24,7 +24,7 @@ export function renderCard(d: Derived, events: CardEvent[], opts: { combined: bo
     const shown = events.filter((e) => showAuto || e.classification === "REAL_OPEN");
     const devices = [...new Set(events.filter((e) => e.classification === "REAL_OPEN" && e.uaFamily).map((e) => e.uaFamily!))].join(", ");
     r.querySelector(".card")!.innerHTML = `<h4><span>Eseen</span><button type="button" id="t">${showAuto ? "Hide" : "Show"} auto-loaded opens (${d.autoLoadedCount})</button></h4>
-      ${opts.sentAt ? `<div class="s">Sent <span title="${exact(opts.sentAt)}">${rel(opts.sentAt, opts.now)}</span>${opts.subject ? ` · ${esc(opts.subject)}` : ""}</div>` : ""}
+      ${opts.sentAt ? `<div class="s">Sent ${rel(opts.sentAt, opts.now)} · <span title="${exact(opts.sentAt)}">${new Date(opts.sentAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>${opts.subject ? ` · ${esc(opts.subject)}` : ""}</div>` : ""}
       <div class="r"><span>${opts.combined ? "All recipients (combined)" : "Recipient"}</span><span class="b ${d.status}" title="${esc(d.tooltip)}" tabindex="0">${ICON[d.status]} ${esc(d.label)}</span></div>
       ${d.firstOpenedAt ? `<div class="s">First opened <span title="${exact(d.firstOpenedAt)}">${rel(d.firstOpenedAt, opts.now)}</span> \u00B7 last <span title="${exact(d.lastOpenedAt!)}">${rel(d.lastOpenedAt!, opts.now)}</span> \u00B7 ${d.openCount} open${d.openCount === 1 ? "" : "s"}${devices ? ` \u00B7 ${esc(devices)}` : ""}</div>` : ""}
       ${shown.filter((e) => e.classification !== "REAL_OPEN").map((e) => `<div class="s">\u25CC ${rel(e.at, opts.now)}: ${esc(e.reason)}</div>`).join("")}
