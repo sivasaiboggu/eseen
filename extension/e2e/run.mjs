@@ -51,7 +51,9 @@ try {
   assert.ok(!(await pop.$(".timeline.open")), "Escape collapses the timeline");
   assert.equal(await pop.$eval(".timeline", (el) => getComputedStyle(el).paddingBottom), "0px", "collapsed timeline has no visible bar");
   // mouse expand for the layout screenshot
-  await pop.click(".email-row"); await pop.waitForTimeout(250); await pop.screenshot({ path: path.join(shots, "popup-expanded.png") });
+  await pop.click(".email-row"); await pop.waitForTimeout(250);
+  assert.doesNotMatch(await pop.textContent(".timeline"), /1 opens/, "singular open count reads '1 open'");
+  await pop.screenshot({ path: path.join(shots, "popup-expanded.png") });
   assert.equal(await pop.$eval(".list-scroll ul", (el) => getComputedStyle(el).paddingLeft), "0px", "rows sit at the 16px inset, no stray list indent");
   await pop.click(".email-row");
   // settings: wired controls persist, unavailable ones are visibly disabled
@@ -72,13 +74,23 @@ try {
   assert.equal(await pop.$eval(".search", (el) => getComputedStyle(el).transitionDuration), "0s", "reduced motion disables transitions");
   await pop.screenshot({ path: path.join(shots, "popup-reduced-motion.png") });
   await pop.emulateMedia({ reducedMotion: "no-preference" });
-  // zoom: real page scale factor when the browser allows it
-  try { const cdp = await pop.context().newCDPSession(pop); await cdp.send("Emulation.setPageScaleFactor", { pageScaleFactor: 1.5 }); await pop.waitForTimeout(200); await pop.screenshot({ path: path.join(shots, "popup-zoom150.png") }); await cdp.send("Emulation.setPageScaleFactor", { pageScaleFactor: 1 }); console.log("zoom: CDP 150% page scale"); }
-  catch { await pop.setViewportSize({ width: 570, height: 840 }); await pop.screenshot({ path: path.join(shots, "popup-zoom150.png") }); await pop.setViewportSize({ width: 380, height: 560 }); console.log("zoom: CDP unavailable, used 150% viewport proxy"); }
+  // zoom: browser zoom at 150% shrinks the CSS layout viewport of a 380px popup to ~253px; reflow at that width is the equivalent layout test
+  await pop.setViewportSize({ width: 253, height: 560 }); await pop.waitForTimeout(200);
+  assert.ok(await pop.evaluate(() => document.documentElement.scrollWidth <= 253), "no horizontal overflow at 150% zoom equivalent");
+  for (const sel of [".summary", ".search", ".segments", ".email-row"]) { const b = await (await pop.$(sel)).boundingBox(); assert.ok(b && b.x >= 0 && b.x + b.width <= 254, sel + " fully visible at 150% zoom equivalent"); }
+  await pop.screenshot({ path: path.join(shots, "popup-zoom150.png") });
+  await pop.setViewportSize({ width: 380, height: 560 });
   await pop.emulateMedia({ colorScheme: "dark" });
   await pop.screenshot({ path: path.join(shots, "popup-dark.png") });
   await pop.emulateMedia({ colorScheme: "light" });
-  await fetch("http://localhost:8787/v1/me", { method: "DELETE", headers: { authorization: "Bearer dev-user" } });
+  // delete-all requires the typed confirmation; the button stays inert without it
+  await pop.click(".icon-btn[aria-label='Settings']"); await pop.waitForTimeout(250);
+  await pop.click(".danger-zone .danger-btn"); await pop.waitForTimeout(150);
+  assert.ok(await pop.$(".confirm-dialog"), "delete asks for typed confirmation");
+  assert.ok(await pop.$(".confirm-dialog .danger-btn[disabled]"), "delete button inert until DELETE is typed");
+  await pop.fill(".confirm-dialog input", "DELET"); assert.ok(await pop.$(".confirm-dialog .danger-btn[disabled]"), "partial confirmation stays inert");
+  await pop.fill(".confirm-dialog input", "DELETE");
+  await pop.click(".confirm-dialog .danger-btn"); await pop.waitForTimeout(500);
   await pop.reload(); await pop.getByText("Nothing tracked yet").waitFor();
   await pop.screenshot({ path: path.join(shots, "popup-empty.png") });
   try { process.kill(-be.pid); } catch { be.kill(); }

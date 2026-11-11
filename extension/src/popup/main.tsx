@@ -59,14 +59,14 @@ function EmailRow({ row, query, expanded, onToggle, onKeyDown }: { row: Row; que
   const primary = row.recipients[0]; const status = mapStatus(primary?.status);
   const identity = primary?.name || primary?.email;
   const recipientText = identity ? (row.recipients.length > 1 ? `${identity} +${row.recipients.length - 1}` : identity) : "All recipients";
-  const sub = primary?.firstOpenedAt ? `Opened ${relativeTime(primary.firstOpenedAt)}` : primary?.openCount ? `${primary.openCount} opens` : "";
+  const sub = primary?.firstOpenedAt ? `Opened ${relativeTime(primary.firstOpenedAt)}` : primary?.openCount ? `${primary.openCount} ${primary.openCount === 1 ? "open" : "opens"}` : "";
   return <>
     <button className="email-row" aria-expanded={expanded} onClick={onToggle} onKeyDown={onKeyDown}>
       <Avatar recipients={row.recipients}/>
       <div className="email-main"><div className="email-title"><Highlight text={titleFor(row)} query={query}/></div><div className="email-meta">To <Highlight text={recipientText} query={query}/> · Sent {new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(row.sentAt))}</div></div>
       <div className="email-side"><StatusPill status={status}/><span className="sub-status">{sub}</span></div>
     </button>
-    <div className={`timeline ${expanded ? "open" : ""}`} aria-hidden={!expanded}>{expanded && row.recipients.map((r, i) => <div className="timeline-item" key={r.email || r.name || r.label || i}><StatusPill status={mapStatus(r.status)}/><div className="timeline-meta">{r.name || r.email || (row.mode === "combined" ? "All recipients (one shared status)" : r.label)}{r.firstOpenedAt ? ` · First ${exactTime(r.firstOpenedAt)}` : ""}{r.lastOpenedAt ? ` · Last ${exactTime(r.lastOpenedAt)}` : ""}{r.openCount ? ` · ${r.openCount} opens` : ""}{r.uaFamily ? ` · ${r.uaFamily}` : ""}</div></div>)}{expanded && primary?.threadUrl && <button className="open-gmail" onClick={() => chrome.tabs.create({ url: primary.threadUrl })}>Open in Gmail <ExternalLink size={12} aria-hidden="true"/></button>}</div>
+    <div className={`timeline ${expanded ? "open" : ""}`} aria-hidden={!expanded}>{expanded && row.recipients.map((r, i) => <div className="timeline-item" key={r.email || r.name || r.label || i}><StatusPill status={mapStatus(r.status)}/><div className="timeline-meta">{r.name || r.email || (row.mode === "combined" ? "All recipients (one shared status)" : r.label)}{r.firstOpenedAt ? ` · First ${exactTime(r.firstOpenedAt)}` : ""}{r.lastOpenedAt ? ` · Last ${exactTime(r.lastOpenedAt)}` : ""}{r.openCount ? ` · ${r.openCount} ${r.openCount === 1 ? "open" : "opens"}` : ""}{r.uaFamily ? ` · ${r.uaFamily}` : ""}</div></div>)}{expanded && primary?.threadUrl && <button className="open-gmail" onClick={() => chrome.tabs.create({ url: primary.threadUrl })}>Open in Gmail <ExternalLink size={12} aria-hidden="true"/></button>}</div>
   </>;
 }
 
