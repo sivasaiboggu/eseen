@@ -75,7 +75,7 @@ export function buildApp(o: Opts) {
     const m = store.msgs.get(req.params.id); if (!m || m.userId !== userId) return rep.code(404).send({ error: "not found" });
     await flush(); return view(m, true);
   });
-  /** Extension signal: sender is viewing their own sent thread. The next first load within the window counts as SELF_OPEN (heuristic). */
+  /** Extension signal: sender is viewing their own sent thread. The next first load within the window stays POSSIBLY_OPENED, an unverified timing hint. */
   app.post<{ Params: { id: string } }>("/v1/messages/:id/self-view", async (req, rep) => {
     const userId = auth(req.headers); if (!userId) return unauth(rep);
     const m = store.msgs.get(req.params.id); if (!m || m.userId !== userId) return rep.code(404).send({ error: "not found" });

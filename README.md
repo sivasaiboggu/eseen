@@ -20,7 +20,8 @@ To test from outside localhost use a Cloudflare Tunnel or ngrok to the backend a
 - Gmail caches images, so repeat opens can be invisible.
 - Gmail sends one copy to all To/Cc/Bcc, so status is combined unless separate copies are sent. Bcc recipients are never revealed.
 - An open means the image loaded, not that the email was read. A Gmail-proxy load after the first minute is labelled Opened internally, but timing cannot prove a person opened it.
-- The sender previewing their own sent mail can look like a recipient open; such guesses are shown as Possibly opened, never hidden.
+- Sender-side image-load suppression is not implemented in the extension. Merely inserting a hidden image can load it from compose. The mock test blocks that request and does not validate self-open filtering. The classifier preserves timing-only guesses as Possibly opened when given a self-view signal, but the extension does not yet supply that signal.
+- Registration currently precedes Send and is not reconciled with a verified send acknowledgement. A canceled send can leave a registered message; do not treat registration as evidence of delivery or even completed sending.
 - Per-recipient tracking needs separate copies; prepared in the backend only, not enabled.
 - IP-based bot rules need real published ranges loaded at deploy time.
 See docs/decisions.md.
