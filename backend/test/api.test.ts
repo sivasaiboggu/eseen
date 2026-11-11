@@ -64,7 +64,7 @@ describe("live events stream", () => {
       const reader = res.body!.getReader();
       const first = await reader.read();
       expect(new TextDecoder().decode(first.value)).toContain(": connected");
-      clock.adv(1000); await hit("Chrome");
+      clock.adv(61000); await hit("Chrome"); // past the first-load window so the event is a real open
       const chunk = await reader.read();
       expect(new TextDecoder().decode(chunk.value)).toContain("REAL_OPEN");
       await reader.cancel();
@@ -113,5 +113,30 @@ describe("status flow", () => {
     expect((await app.inject({ url: "/v1/export", headers: H })).json()).toHaveLength(1);
     expect((await app.inject({ method: "DELETE", url: "/v1/me", headers: H })).statusCode).toBe(204);
     expect((await app.inject({ url: `/v1/messages/${body.id}`, headers: H })).statusCode).toBe(404);
+  });
+});
+
+describe("registration idempotency", () => {
+  it("a retried opId returns the original registration, no orphan", async () => {
+    const { app, store } = await setup();
+    const op = { opId: "op-1", recipients: [{ email: "a@x.com" }] };
+    const r1 = await app.inject({ method: "POST", url: "/v1/messages", headers: H, payload: op });
+    const r2 = await app.inject({ method: "POST", url: "/v1/messages", headers: H, payload: op });
+    expect(r1.statusCode).toBe(200); expect(r2.statusCode).toBe(200);
+    expect(r2.json().id).toBe(r1.json().id);
+    expect([...store.msgs.values()].filter((m) => m.userId === "u1").length).toBe(2); // setup() created one
+  });
+  it("different opIds create separate registrations", async () => {
+    const { app, store } = await setup();
+    await app.inject({ method: "POST", url: "/v1/messages", headers: H, payload: { opId: "op-2", recipients: [{ email: "a@x.com" }] } });
+    await app.inject({ method: "POST", url: "/v1/messages", headers: H, payload: { opId: "op-3", recipients: [{ email: "a@x.com" }] } });
+    expect([...store.msgs.values()].filter((m) => m.userId === "u1").length).toBe(3);
+  });
+  it("sent-ack accepts and stores the Gmail threadId, first wins", async () => {
+    const { app, body } = await setup();
+    await app.inject({ method: "POST", url: `/v1/messages/${body.id}/sent-ack`, headers: H, payload: { threadId: "t-1" } });
+    await app.inject({ method: "POST", url: `/v1/messages/${body.id}/sent-ack`, headers: H, payload: { threadId: "t-2" } });
+    const v = (await app.inject({ method: "GET", url: `/v1/messages/${body.id}`, headers: H })).json();
+    expect(v.threadId).toBe("t-1");
   });
 });

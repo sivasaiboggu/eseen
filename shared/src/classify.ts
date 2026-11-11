@@ -28,6 +28,11 @@ export function classify(ev: OpenEvent, ctx: Ctx, r: Rules = defaultRules): Resu
       return { classification: "POSSIBLY_OPENED", reason: "Gmail image proxy loaded this within 60s of sending (likely pre-fetch)" };
     return { classification: "REAL_OPEN", reason: "Via Gmail image proxy. Timing alone cannot prove a person opened it; Gmail also caches images, so repeat opens may be hidden" };
   }
+  // Any first load within the send window, marker or not: the sender's own compose/sent view is
+  // indistinguishable from a fast recipient open, so it is kept visibly ambiguous rather than
+  // silently counted as a real open when the self-view marker never registered.
+  if (ctx.prior.length === 0 && (ev.at - ctx.sentAt) / 1000 <= r.gmailPrefetchWithinSeconds)
+    return { classification: "POSSIBLY_OPENED", reason: "First load within 60s of sending. Could be your own mail client, could be the recipient (kept visible)" };
   if (ctx.ip?.datacenter) {
     const burst = ctx.prior.filter((p) => ev.at - p.at <= r.burstWindowSeconds * 1000).length + 1 >= r.burstMinLoads;
     if (burst) return { classification: "POSSIBLY_OPENED", reason: "Burst of loads from a data-center address" };

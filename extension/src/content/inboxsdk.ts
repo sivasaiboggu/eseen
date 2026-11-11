@@ -28,7 +28,9 @@ export async function startInboxSdk(appId: string, getApi: () => Promise<Api>, g
     });
     cv.on("sent", () => { // Gmail-level confirmation the send completed; registration alone never implies sent
       const id = trackedId; trackedId = undefined;
-      if (id) void getApi().then((api) => markSentAck(api, id));
+      let threadId: string | undefined;
+      try { threadId = cv.getThreadID() ?? undefined; } catch { /* unavailable for some compose types */ } // links list badges to this Gmail thread
+      if (id) void getApi().then((api) => markSentAck(api, id, threadId));
     });
     cv.on("discard", () => { trackedId = undefined; removePixel(body()); }); // no orphan pixels in discarded drafts
   });

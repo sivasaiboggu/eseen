@@ -26,3 +26,13 @@ describe("prepareSend", () => {
     expect(armed).toBe(false); expect(b.querySelector("img[data-eseen]")).not.toBeNull(); });
   it("marks the self-view window before the pixel is injected (ordering matters)", async () => { const calls: string[] = []; const f = (async (u: any) => { calls.push(String(u)); return new Response(JSON.stringify({ id: "m1", pixels: [{ url: "https://track.eseen.app/p/t.gif" }] }), { status: 200 }); }) as unknown as typeof fetch; const b = body(); expect(await prepareSend(b, { base: "x", userId: "u", fetch: f }, ["a@x.com"], () => false)).toBe("tracked"); const selfView = calls.indexOf("x/v1/messages/m1/self-view"); expect(selfView).toBeGreaterThan(-1); expect(calls.indexOf("x/v1/messages")).toBe(0); expect(b.querySelector("img[data-eseen]")).not.toBeNull(); });
 });
+
+describe("registration opId", () => {
+  it("is stable across retries so a committed-but-lost response replays instead of duplicating", async () => {
+    const ops: string[] = []; let calls = 0;
+    const f = (async (_u: any, i: any) => { calls++; ops.push(JSON.parse(i.body).opId); if (calls === 1) throw new Error("lost response"); return new Response(JSON.stringify({ id: "m1", pixels: [{ url: "https://track.eseen.app/p/t.gif" }] }), { status: 200 }); }) as unknown as typeof fetch;
+    const b = document.createElement("div"); b.innerHTML = "<p>hi</p>";
+    expect(await prepareSend(b, { base: "x", userId: "u", fetch: f }, ["a@x.com"], () => false, undefined, undefined, { sleep: async () => {} })).toBe("tracked");
+    expect(ops.length).toBe(2); expect(ops[0]).toBe(ops[1]); expect(ops[0]).toBeTruthy();
+  });
+});

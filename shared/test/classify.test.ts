@@ -22,7 +22,7 @@ describe("classify", () => {
   it("scanners", () => ["Proofpoint", "Mimecast", "Barracuda", "Microsoft Defender", "Cisco", "Symantec", "Avanan"].forEach((u) =>
     expect(classify({ at: T + 9e5, userAgent: u }, c()).classification).toBe("POSSIBLY_OPENED")));
   it("burst from datacenter", () => expect(classify({ at: T + 1000, userAgent: "x" }, c({ ip: { datacenter: true }, prior: [{ at: T + 500 }] })).classification).toBe("POSSIBLY_OPENED"));
-  it("single datacenter load is not burst", () => expect(classify({ at: T + 1000, userAgent: "x" }, c({ ip: { datacenter: true } })).classification).toBe("REAL_OPEN"));
+  it("single datacenter load is not burst", () => expect(classify({ at: T + 61000, userAgent: "x" }, c({ ip: { datacenter: true } })).classification).toBe("REAL_OPEN"));
   it("everything else real", () => expect(classify({ at: T + 9e5, userAgent: "Mozilla Chrome" }, c()).classification).toBe("REAL_OPEN"));
 });
 describe("deriveStatus", () => {
@@ -41,4 +41,20 @@ describe("deriveStatus", () => {
   });
   it("self opens are ignored", () => expect(deriveStatus([e("SELF_OPEN")]).status).toBe("NOT_OPENED_YET"));
   it("label never says read", () => expect(deriveStatus([e("REAL_OPEN")]).label).not.toMatch(/read/i));
+});
+
+describe("first load inside the send window without a marker", () => {
+  it("stays POSSIBLY_OPENED for a direct (non-proxy) first load within 60s - sender's own view is indistinguishable", () => {
+    const r = classify({ at: 30_000, userAgent: "Mozilla/5.0 AppleWebKit" }, { sentAt: 0, prior: [] });
+    expect(r.classification).toBe("POSSIBLY_OPENED");
+    expect(r.reason).toContain("Could be your own mail client");
+  });
+  it("counts a direct first load after the window as REAL_OPEN", () => {
+    const r = classify({ at: 61_000, userAgent: "Mozilla/5.0 AppleWebKit" }, { sentAt: 0, prior: [] });
+    expect(r.classification).toBe("REAL_OPEN");
+  });
+  it("a later direct load with prior events is unaffected", () => {
+    const r = classify({ at: 30_000, userAgent: "Mozilla/5.0 AppleWebKit" }, { sentAt: 0, prior: [{ at: 10_000 }] });
+    expect(r.classification).toBe("REAL_OPEN");
+  });
 });

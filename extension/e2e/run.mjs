@@ -104,6 +104,19 @@ try {
   await pop.emulateMedia({ colorScheme: "dark" });
   await pop.screenshot({ path: path.join(shots, "popup-dark.png") });
   await pop.emulateMedia({ colorScheme: "light" });
+  // unarmed marker: self-view POST blocked, the compose-side load must stay visibly ambiguous - never a silent Opened
+  await ctx.route("https://mail.google.com/api/v1/messages/*/self-view", (r) => r.abort()); // registered last: wins over the proxy route
+  await page.evaluate(() => { document.getElementById("body").innerHTML = "<p>second</p>"; });
+  await page.click("#send"); await page.waitForFunction(() => window.__sent?.includes("second"));
+  await new Promise((r) => setTimeout(r, 400));
+  const msgs = await (await fetch("http://localhost:8787/v1/messages", { headers: { authorization: "Bearer dev-user" } })).json();
+  assert.equal(msgs[0].recipients[0].status, "POSSIBLY_OPENED", "unarmed marker: the compose load stays ambiguous, never a silent open");
+  assert.match(msgs[0].recipients[0].events[0].reason, /First load within 60s of sending/); console.log("unarmed compose load classified:", msgs[0].recipients[0].events[0].reason);
+  await pop.reload(); await pop.waitForSelector(".email-row", { timeout: 15000 }); await pop.waitForTimeout(1200);
+  console.log("POPUP TOP ROW:", await pop.textContent(".email-row"));
+  const topRow = await pop.textContent(".email-row");
+  assert.match(topRow, /Auto-loaded/, "popup shows the ambiguity as auto-loaded");
+  assert.doesNotMatch(topRow, /Opened/, "and never a silent Opened");
   // delete-all requires the typed confirmation; the button stays inert without it
   await pop.click(".icon-btn[aria-label='Settings']"); await pop.waitForTimeout(250);
   await pop.click(".danger-zone .danger-btn"); await pop.waitForTimeout(150);

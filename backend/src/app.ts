@@ -41,6 +41,7 @@ export function buildApp(o: Opts) {
   const hash = (u: string, email: string) => createHash("sha256").update(salt(u) + email.trim().toLowerCase()).digest("hex");
 
   const create = z.object({
+    opId: z.string().max(100).optional(), // client idempotency key: retries after a lost response return the original registration instead of creating an orphan
     subjectLabel: z.string().max(200).optional(), // optional, user-controlled; encrypted at rest in the Postgres impl
     /** Gmail sends ONE body to all recipients. "combined" (default): one pixel, one combined status. "per_recipient": the client sends separate copies, opt-in only. */
     mode: z.enum(["combined", "per_recipient"]).default("combined"),
@@ -50,16 +51,19 @@ export function buildApp(o: Opts) {
   app.post("/v1/messages", async (req, rep) => {
     const userId = auth(req.headers); if (!userId) return unauth(rep);
     const p = create.safeParse(req.body); if (!p.success) return rep.code(400).send({ error: "invalid" });
+    if (p.data.opId) { const hit = store.ops.get(`${userId}:${p.data.opId}`); if (hit) return hit; } // committed earlier; response lost in transit
     const id = newId(), m: Msg = { id, userId, subjectEnc: p.data.subjectLabel, sentAt: now(), mode: p.data.mode, recipients: [] };
     if (p.data.mode === "combined") m.recipients.push({ id: newId(), messageId: id, label: "All recipients (combined)" });
     else p.data.recipients.forEach((r) => m.recipients.push({ id: newId(), messageId: id, emailHash: hash(userId, r.email), label: p.data.storeRecipientNames ? r.label : undefined }));
     if (!m.recipients.length) return rep.code(400).send({ error: "per_recipient needs recipients" });
     store.addMessage(m);
-    return { id, mode: m.mode, limitation: m.mode === "combined" ? "Gmail sends one copy to everyone, so this status covers all To/Cc/Bcc recipients together." : undefined,
+    const created = { id, mode: m.mode, limitation: m.mode === "combined" ? "Gmail sends one copy to everyone, so this status covers all To/Cc/Bcc recipients together." : undefined,
       pixels: m.recipients.map((r) => ({ recipientId: r.id, url: `${o.baseUrl}/p/${sign("p", r.id, o.secrets)}.gif` })) };
+    if (p.data.opId) store.ops.set(`${userId}:${p.data.opId}`, created);
+    return created;
   });
 
-  const view = (m: Msg, showAuto: boolean) => ({ id: m.id, label: m.subjectEnc, sentAt: m.sentAt, mode: m.mode, recipients: m.recipients.map((r) => {
+  const view = (m: Msg, showAuto: boolean) => ({ id: m.id, label: m.subjectEnc, sentAt: m.sentAt, mode: m.mode, threadId: m.threadId, recipients: m.recipients.map((r) => {
     const evs = store.eventsFor(r.id).filter((e) => e.classification !== "SELF_OPEN");
     return { id: r.id, label: r.label, ...deriveStatus(evs, { sentRecently: now() - m.sentAt < 60000, sendAcked: m.sentAckedAt !== undefined }),
       events: evs.filter((e) => showAuto || e.classification === "REAL_OPEN").map((e) => ({ at: e.at, classification: e.classification, reason: e.reason, uaFamily: e.uaFamily })) };
@@ -85,7 +89,10 @@ export function buildApp(o: Opts) {
   app.post<{ Params: { id: string } }>("/v1/messages/:id/sent-ack", async (req, rep) => {
     const userId = auth(req.headers); if (!userId) return unauth(rep);
     const m = store.msgs.get(req.params.id); if (!m || m.userId !== userId) return rep.code(404).send({ error: "not found" });
+    const p = z.object({ threadId: z.string().max(200).optional() }).partial().safeParse(req.body ?? {});
+    if (!p.success) return rep.code(400).send({ error: "invalid" });
     if (m.sentAckedAt === undefined) m.sentAckedAt = now();
+    if (m.threadId === undefined && p.data.threadId) m.threadId = p.data.threadId; // first ack wins, id and thread alike
     return rep.code(204).send();
   });
   app.delete("/v1/me", async (req, rep) => { const u = auth(req.headers); if (!u) return unauth(rep); store.deleteUser(u); return rep.code(204).send(); });

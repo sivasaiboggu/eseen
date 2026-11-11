@@ -7,7 +7,7 @@ import type { Api } from "./tracking";
  * the send, so a late registration is an orphan tracking nothing. Registration failure
  * retries in-place while the send is held (tracking.ts), then the user chooses.
  */
-export interface QueuedSignal { path: string; queuedAt: number; attempts: number }
+export interface QueuedSignal { path: string; queuedAt: number; attempts: number; body?: string }
 export interface SignalStore {
   entries(): Promise<{ key: unknown; value: QueuedSignal }[]>;
   add(s: QueuedSignal): Promise<void>;
@@ -31,13 +31,13 @@ export async function enqueue(s: QueuedSignal, store: SignalStore = idbSignalSto
   try { await store.add(s); const all = await store.entries(); for (const e of all.slice(0, Math.max(0, all.length - CAP))) await store.delete(e.key); } catch { /* nothing more to do */ }
 }
 /** POST a signal; on network/5xx failure queue it. Returns true only when actually delivered now - callers must not treat a queued signal as registered. */
-export async function postSignal(api: Api, path: string, store: SignalStore = idbSignalStore): Promise<boolean> {
+export async function postSignal(api: Api, path: string, store: SignalStore = idbSignalStore, body?: string): Promise<boolean> {
   try {
-    const r = await (api.fetch ?? fetch)(`${api.base}${path}`, { method: "POST", headers: { authorization: `Bearer ${api.userId}` } });
+    const r = await (api.fetch ?? fetch)(`${api.base}${path}`, { method: "POST", headers: { authorization: `Bearer ${api.userId}`, ...(body ? { "content-type": "application/json" } : {}) }, body });
     if (r.ok) return true;
-    if (r.status >= 500) await enqueue({ path, queuedAt: Date.now(), attempts: 0 }, store);
+    if (r.status >= 500) await enqueue({ path, queuedAt: Date.now(), attempts: 0, body }, store);
     return false; // 4xx will not fix itself by retrying
-  } catch { await enqueue({ path, queuedAt: Date.now(), attempts: 0 }, store); return false; }
+  } catch { await enqueue({ path, queuedAt: Date.now(), attempts: 0, body }, store); return false; }
 }
 /** Retry queued signals whose backoff has elapsed; drop expired or exhausted ones. Returns deliveries. */
 export async function flushQueue(api: Api, store: SignalStore = idbSignalStore, now = Date.now()): Promise<number> {
@@ -46,7 +46,7 @@ export async function flushQueue(api: Api, store: SignalStore = idbSignalStore, 
     const age = now - s.queuedAt;
     if ((s.path.endsWith("/self-view") && age > SELF_VIEW_TTL) || age > MAX_AGE || s.attempts >= MAX_ATTEMPTS) { await store.delete(key); continue; }
     if (age < backoff(s.attempts)) continue;
-    try { const r = await (api.fetch ?? fetch)(`${api.base}${s.path}`, { method: "POST", headers: { authorization: `Bearer ${api.userId}` } }); if (r.ok) { await store.delete(key); delivered++; continue; } if (r.status < 500) { await store.delete(key); continue; } } catch { /* retry next time */ }
+    try { const r = await (api.fetch ?? fetch)(`${api.base}${s.path}`, { method: "POST", headers: { authorization: `Bearer ${api.userId}`, ...(s.body ? { "content-type": "application/json" } : {}) }, body: s.body }); if (r.ok) { await store.delete(key); delivered++; continue; } if (r.status < 500) { await store.delete(key); continue; } } catch { /* retry next time */ }
     await store.delete(key); await store.add({ ...s, attempts: s.attempts + 1 });
   }
   return delivered;
