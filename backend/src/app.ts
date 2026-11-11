@@ -21,7 +21,9 @@ export function buildApp(o: Opts) {
   app.addHook("onRequest", async (req, rep) => {
     const o = String(req.headers.origin ?? "");
     // Allowed: the Gmail origin (content scripts run with the page's origin) and our own extension pages (popup/dashboard, dev API).
-    if (o === "https://mail.google.com" || o.startsWith("chrome-extension://")) {
+    // Dashboard origins: configurable; defaults cover local dev (vite serve + static preview).
+    const dash = (process.env.ESEEN_DASHBOARD_ORIGINS ?? "http://localhost:5173,http://localhost:4173").split(",");
+    if (o === "https://mail.google.com" || o.startsWith("chrome-extension://") || dash.includes(o)) {
       rep.header("Access-Control-Allow-Origin", o).header("Vary", "Origin").header("Access-Control-Allow-Headers", "authorization, content-type")
         .header("Access-Control-Allow-Methods", "GET, POST, DELETE").header("Access-Control-Allow-Private-Network", "true");
       if (req.method === "OPTIONS") return rep.code(204).send();
@@ -65,8 +67,8 @@ export function buildApp(o: Opts) {
 
   const view = async (m: Msg, showAuto: boolean) => ({ id: m.id, label: m.subjectEnc, sentAt: m.sentAt, mode: m.mode, threadId: m.threadId, recipients: await Promise.all(m.recipients.map(async (r) => {
     const evs = (await store.eventsFor(r.id)).filter((e) => e.classification !== "SELF_OPEN");
-    return { id: r.id, label: r.label, ...deriveStatus(evs, { sentRecently: now() - m.sentAt < 60000, sendAcked: m.sentAckedAt !== undefined }),
-      events: evs.filter((e) => showAuto || e.classification === "REAL_OPEN").map((e) => ({ at: e.at, classification: e.classification, reason: e.reason, uaFamily: e.uaFamily })) };
+    return { id: r.id, ...deriveStatus(evs, { sentRecently: now() - m.sentAt < 60000, sendAcked: m.sentAckedAt !== undefined }),
+      events: evs.filter((e) => showAuto || e.classification === "REAL_OPEN").map((e) => ({ at: e.at, classification: e.classification, reason: e.reason, uaFamily: e.uaFamily })), recipientLabel: r.label };
   })) });
   app.get("/v1/messages", async (req, rep) => {
     const userId = await auth(req.headers); if (!userId) return unauth(rep);

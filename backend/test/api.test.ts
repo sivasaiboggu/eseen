@@ -140,3 +140,28 @@ describe("registration idempotency", () => {
     expect(v.threadId).toBe("t-1");
   });
 });
+
+describe("recipient label", () => {
+  it("keeps the stored recipient name distinct from the status label", async () => {
+    const { app } = buildApp({ secrets: ["s"], baseUrl: "https://track.test" });
+    await app.inject({ method: "POST", url: "/v1/messages", headers: H, payload: { mode: "per_recipient", recipients: [{ email: "priya@example.com", label: "Priya" }], storeRecipientNames: true } });
+    const list = (await app.inject({ url: "/v1/messages", headers: H })).json();
+    expect(list[0].recipients[0].recipientLabel).toBe("Priya");
+    expect(list[0].recipients[0].label).toBe("Set up - send unconfirmed");
+    await app.close();
+  });
+});
+
+describe("CORS", () => {
+  it("allows configured dashboard origins and answers preflight", async () => {
+    const { app } = buildApp({ secrets: ["s"], baseUrl: "http://b" });
+    const pre = await app.inject({ method: "OPTIONS", url: "/v1/messages", headers: { origin: "http://localhost:4173", "access-control-request-headers": "authorization" } });
+    expect(pre.statusCode).toBe(204);
+    expect(pre.headers["access-control-allow-origin"]).toBe("http://localhost:4173");
+    const get = await app.inject({ method: "GET", url: "/v1/messages", headers: { origin: "http://localhost:4173", authorization: "Bearer u" } });
+    expect(get.headers["access-control-allow-origin"]).toBe("http://localhost:4173");
+    const other = await app.inject({ method: "OPTIONS", url: "/v1/messages", headers: { origin: "https://evil.example" } });
+    expect(other.headers["access-control-allow-origin"]).toBeUndefined();
+    await app.close();
+  });
+});
