@@ -131,6 +131,16 @@ try {
   const topRow = await pop.textContent(".email-row");
   assert.match(topRow, /Auto-loaded/, "popup shows the ambiguity as auto-loaded");
   assert.doesNotMatch(topRow, /Opened/, "and never a silent Opened");
+  // two tracked sends in ONE thread: the row aggregates, each send keeps its own card
+  const ack2 = await fetch(`http://localhost:8787/v1/messages/${msgs[0].id}/sent-ack`, { method: "POST", headers: { authorization: "Bearer dev-user", "content-type": "application/json" }, body: JSON.stringify({ threadId: "t-1" }) });
+  assert.equal(ack2.status, 204);
+  await page.reload(); await page.waitForSelector("#send"); await page.waitForTimeout(2500);
+  const deco2 = await page.evaluate(() => ({
+    cards: [...document.querySelectorAll("div[data-thread-id='t-1'] > span")].filter((s) => s.shadowRoot?.querySelector(".card")).length,
+    badges: [...document.querySelectorAll("tr[data-legacy-thread-id='t-1'] td.a4W span")].filter((s) => s.shadowRoot?.querySelector(".b")).length,
+  }));
+  assert.equal(deco2.badges, 1, "one aggregate badge on the row"); assert.equal(deco2.cards, 2, "one card per tracked send in the thread");
+  console.log("two sends in one thread: aggregate badge + per-send cards");
   // delete-all requires the typed confirmation; the button stays inert without it
   await pop.click(".icon-btn[aria-label='Settings']"); await pop.waitForTimeout(250);
   await pop.click(".danger-zone .danger-btn"); await pop.waitForTimeout(150);
