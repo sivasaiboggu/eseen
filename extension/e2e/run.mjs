@@ -8,12 +8,13 @@ const ctx = await chromium.launchPersistentContext("/tmp/eseen-profile-" + Date.
 try {
   const html = fs.readFileSync(path.join(root, "e2e/mock-gmail.html"), "utf8");
   await ctx.route("https://mail.google.com/**", (r) => r.fulfill({ contentType: "text/html", body: html }));
+  let pixelLoads = 0;
   await ctx.route("https://mail.google.com/api/**", async (route) => { // loopback proxy: the page never touches a private address space
     const u = new URL(route.request().url());
+    if (u.pathname.startsWith("/api/p/")) pixelLoads++; // compose-side loads go through for real: they must land inside the self-view window
     try { const resp = await route.fetch({ url: "http://localhost:8787" + u.pathname.replace(/^\/api/, "") + u.search }); await route.fulfill({ response: resp }); }
     catch { await route.fulfill({ status: 502, body: "backend down" }); } // lets the popup render its own error state when the backend is gone
   });
-  await ctx.route("https://mail.google.com/api/p/**", (r) => r.abort()); // the mock page must not load the pixel itself; the e2e simulates opens via direct fetches
   const page = await ctx.newPage(); page.on("console", (m) => console.log("page:", m.text())); page.on("pageerror", (e) => console.log("pageerror:", e.message)); page.on("dialog", (d) => { console.log("dialog:", d.message()); void d.accept(); });
   await page.goto("https://mail.google.com/mock");
   await page.waitForSelector("#send"); await page.waitForTimeout(1500);
@@ -24,12 +25,15 @@ try {
   const m = sent.match(/<img[^>]*data-eseen[^>]*src="([^"]+)"/) ?? sent.match(/<img[^>]*src="([^"]+)"[^>]*data-eseen/); assert.ok(m, "pixel present in sent body: " + sent);
   assert.match(sent, /style="display:none"/); assert.ok(sent.includes("Proposal v2 attached."), "visible text unchanged");
   const pixel = m[1]; console.log("pixel:", pixel.replace(/\/p\/.*/, "/p/<token>.gif"));
+  await new Promise((r) => setTimeout(r, 400)); assert.ok(pixelLoads >= 1, "compose-side pixel load actually fired (nothing is blocked in this test)");
+  { const early = await (await fetch("http://localhost:8787/v1/messages?limit=25", { headers: { authorization: "Bearer dev-user" } })).json();
+    assert.equal(early[0].recipients[0].status, "POSSIBLY_OPENED", "the compose-side load is covered by the self-view window, not recorded as an open");
+    assert.match(early[0].recipients[0].events[0].reason, /viewed your own sent email/); console.log("compose-side load classified:", early[0].recipients[0].events[0].reason); }
   const get = async (ua) => { const r = await fetch(pixel.replace("https://mail.google.com/api", "http://localhost:8787"), { headers: { "user-agent": ua } }); assert.equal(r.status, 200); assert.equal((await r.arrayBuffer()).byteLength, 43); };
   const list = async () => (await (await fetch("http://localhost:8787/v1/messages", { headers: { authorization: "Bearer dev-user" } })).json())[0];
   let msg = await list(); assert.equal(msg.recipients.length, 1); assert.equal(msg.mode, "combined");
   await get("Mozilla/5.0 AppleMail"); await new Promise((r) => setTimeout(r, 300)); msg = await list();
-  assert.equal(msg.recipients[0].status, "POSSIBLY_OPENED");
-  assert.match(msg.recipients[0].events[0].reason, /viewed your own sent email/, "first load inside the self-view window stays an honest 'could be you' hint, not an open"); console.log("after Apple proxy hit:", msg.recipients[0].label);
+  assert.equal(msg.recipients[0].status, "POSSIBLY_OPENED"); console.log("after Apple proxy hit:", msg.recipients[0].label, "events:", msg.recipients[0].events.length);
   await new Promise((r) => setTimeout(r, 3200)); await get("Mozilla/5.0 Chrome/150"); await new Promise((r) => setTimeout(r, 300)); msg = await list();
   assert.equal(msg.recipients[0].status, "OPENED"); console.log("after real-looking hit:", msg.recipients[0].label, "opens:", msg.recipients[0].openCount);
   await page.screenshot({ path: path.join(shots, "mock-compose.png") });
