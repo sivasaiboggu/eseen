@@ -1,4 +1,5 @@
 import { injectPixel, removePixel } from "./inject";
+import { postSignal } from "./queue";
 export interface Api { base: string; userId: string; fetch?: typeof fetch }
 export interface Created { id: string; pixelUrl: string }
 export async function createTracking(api: Api, recipients: string[], subjectLabel?: string): Promise<Created | null> {
@@ -12,11 +13,11 @@ export async function createTracking(api: Api, recipients: string[], subjectLabe
 }
 /** Marks the sender's self-view window. MUST be awaited before the pixel exists in the DOM: a compose-side load fires on injection, and a window set afterwards races it. Failure only downgrades the hint, never blocks a send. */
 export async function markSelfView(api: Api, id: string): Promise<void> {
-  try { await (api.fetch ?? fetch)(`${api.base}/v1/messages/${id}/self-view`, { method: "POST", headers: { authorization: `Bearer ${api.userId}` } }); } catch { /* timing hint only */ }
+  await postSignal(api, `/v1/messages/${id}/self-view`); // queued for retry on failure
 }
 /** Confirms a send after a Gmail-level success signal (InboxSDK sent event). Never called for the fallback path: a resumed click cannot prove the send happened. */
 export async function markSentAck(api: Api, id: string): Promise<void> {
-  try { await (api.fetch ?? fetch)(`${api.base}/v1/messages/${id}/sent-ack`, { method: "POST", headers: { authorization: `Bearer ${api.userId}` } }); } catch { /* confirmation hint only */ }
+  await postSignal(api, `/v1/messages/${id}/sent-ack`); // queued for retry on failure: a confirmed send must not stay "unconfirmed"
 }
 /** Shared by the InboxSDK and fallback paths. Returns "tracked", "untracked" (user agreed) or "cancel". onTracked receives the message id so callers can confirm the send later. */
 export async function prepareSend(body: HTMLElement, api: Api, recipients: string[], confirmUntracked: () => boolean, subjectLabel?: string, onTracked?: (id: string) => void): Promise<"tracked" | "untracked" | "cancel"> {
