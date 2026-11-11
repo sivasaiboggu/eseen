@@ -49,3 +49,27 @@ describe("several tracked sends in one thread", () => {
     expect(calls).toBe(2);
   });
 });
+
+describe("account switching", () => {
+  it("removes the previous account's decorations immediately and allows re-decoration", async () => {
+    const d = doc("t-1");
+    await decorate(d, api([msg("t-1")], "alice"), { showAuto: false, now: Date.now() + 1_300_000 });
+    expect(d.querySelector("td.a4W [data-eseen-uid='alice']")).not.toBeNull();
+    const n = await decorate(d, api([], "bob"), { showAuto: false, now: Date.now() + 1_400_000 }); // switch: bob has nothing tracked
+    expect(n).toBe(0);
+    expect(d.querySelector("td.a4W [data-eseen-uid]")).toBeNull(); // alice's badge is gone, not just uncached
+    const m = await decorate(d, api([msg("t-1")], "alice"), { showAuto: false, now: Date.now() + 1_500_000 }); // switching back redecorates
+    expect(m).toBe(2);
+  });
+  it("a stale in-flight response cannot redecorate the new account", async () => {
+    const d = doc("t-1");
+    let resolveSlow!: (r: Response) => void;
+    const slow = (async () => new Promise<Response>((r) => { resolveSlow = r; })) as unknown as typeof fetch;
+    const p1 = decorate(d, { base: "x", userId: "alice", fetch: slow }, { showAuto: false, now: Date.now() + 1_700_000 });
+    const p2 = decorate(d, api([], "bob"), { showAuto: false, now: Date.now() + 1_700_100 }); // newer call wins the generation
+    resolveSlow(new Response(JSON.stringify([msg("t-1")]), { status: 200 }));
+    expect(await p1).toBe(0); // stale result dropped
+    await p2;
+    expect(d.querySelector("[data-eseen-uid]")).toBeNull();
+  });
+});

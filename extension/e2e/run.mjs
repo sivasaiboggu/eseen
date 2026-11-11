@@ -141,6 +141,7 @@ try {
   }));
   assert.equal(deco2.badges, 1, "one aggregate badge on the row"); assert.equal(deco2.cards, 2, "one card per tracked send in the thread");
   console.log("two sends in one thread: aggregate badge + per-send cards");
+  await page.screenshot({ path: path.join(shots, "mock-thread-two.png") });
   // delete-all requires the typed confirmation; the button stays inert without it
   await pop.click(".icon-btn[aria-label='Settings']"); await pop.waitForTimeout(250);
   await pop.click(".danger-zone .danger-btn"); await pop.waitForTimeout(150);

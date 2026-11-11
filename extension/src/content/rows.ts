@@ -24,8 +24,19 @@ export function threadStatus(msgs: TrackedView[]): Derived {
   return deriveStatus(msgs.flatMap((m) => m.recipients.flatMap((r) => r.events)), { sendAcked: msgs.every((m) => m.recipients.length > 0) });
 }
 const badged = new WeakSet<Element>(), carded = new WeakSet<Element>();
+let generation = 0;
 export async function decorate(root: ParentNode, api: Api, opts: { showAuto: boolean; now?: number }): Promise<number> {
+  const gen = ++generation;
+  // Account switch: remove the previous account's decorations IMMEDIATELY, before any fetch -
+  // another account's status must never stay visible, and the WeakSet entries go with them so re-decoration works.
+  root.querySelectorAll<HTMLElement>("[data-eseen-uid]").forEach((h) => {
+    if (h.dataset.eseenUid === api.userId) return;
+    const row = h.closest("tr[data-legacy-thread-id]"); if (row) badged.delete(row);
+    const thread = h.closest("div[data-thread-id]"); if (thread) carded.delete(thread);
+    h.remove();
+  });
   const byThread = await trackedByThread(api, opts.now ?? Date.now());
+  if (gen !== generation) return 0; // a newer decorate (e.g. account switch) started while we fetched: this result is stale
   if (!byThread.size) return 0;
   let placed = 0;
   root.querySelectorAll<HTMLElement>("tr[data-legacy-thread-id]").forEach((row) => { // UNVERIFIED Gmail row selector, same policy as compose selectors
@@ -34,7 +45,8 @@ export async function decorate(root: ParentNode, api: Api, opts: { showAuto: boo
     if (!msgs?.length) return;
     badged.add(row);
     const anchor = row.querySelector("td.a4W") ?? row; // subject cell when present (unverified), else the row itself
-    anchor.appendChild(renderBadge(threadStatus(msgs))); // icon-only badge: never shifts the row layout
+    const b = renderBadge(threadStatus(msgs)); b.dataset.eseenUid = api.userId;
+    anchor.appendChild(b); // icon-only badge: never shifts the row layout
     placed++;
   });
   root.querySelectorAll<HTMLElement>("div[data-thread-id]").forEach((thread) => { // UNVERIFIED open-thread selector
@@ -44,7 +56,9 @@ export async function decorate(root: ParentNode, api: Api, opts: { showAuto: boo
     carded.add(thread);
     for (const m of [...msgs].reverse()) // newest send first; each card shows only that send's opens
       for (const r of m.recipients) {
-        thread.prepend(renderCard(deriveStatus(r.events, { sendAcked: true }), r.events, { combined: m.mode === "combined", now: opts.now, showAuto: opts.showAuto }));
+        const c = renderCard(deriveStatus(r.events, { sendAcked: true }), r.events, { combined: m.mode === "combined", now: opts.now, showAuto: opts.showAuto });
+        c.dataset.eseenUid = api.userId;
+        thread.prepend(c);
         placed++;
       }
   });
