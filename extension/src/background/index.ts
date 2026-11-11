@@ -5,10 +5,11 @@ import { flushQueue } from "../content/queue";
 
 const API = (import.meta.env.VITE_ESEEN_API as string | undefined) ?? "http://localhost:8787"; // dev default; production URL set at build/deploy
 async function tick() {
-  const s = (await chrome.storage.sync.get({ userId: "dev-user", notifications: false, notifyFirstOpen: false, showAuto: true })) as { userId: string } & NotifyPrefs;
+  const s = (await chrome.storage.sync.get({ userId: "dev-user", notifications: false, notifyFirstOpen: false, showAuto: true, google: null as { idToken: string; expiresAt: number } | null })) as { userId: string; google: { idToken: string; expiresAt: number } | null } & NotifyPrefs;
+  const bearer = s.google && s.google.expiresAt > Date.now() ? s.google.idToken : s.userId; // verified Google identity when signed in, dev identity otherwise
   const seen = (await chrome.storage.local.get({ seen: {} })).seen as Record<string, number>;
-  await flushQueue({ base: API, userId: s.userId }); // retry queued self-view/sent-ack signals
-  const next = await checkOnce({ base: API, userId: s.userId }, s, seen, (title, message) => { try { chrome.notifications.create({ type: "basic", iconUrl: "icons/icon128.png", title, message }); } catch { /* headless/dev */ } });
+  await flushQueue({ base: API, userId: bearer }); // retry queued self-view/sent-ack signals
+  const next = await checkOnce({ base: API, userId: bearer }, s, seen, (title, message) => { try { chrome.notifications.create({ type: "basic", iconUrl: "icons/icon128.png", title, message }); } catch { /* headless/dev */ } });
   await chrome.storage.local.set({ seen: next });
 }
 // First run: show the onboarding/consent page once.
